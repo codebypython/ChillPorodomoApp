@@ -9,13 +9,11 @@ export class AudioManager {
     constructor(settings) {
         this.settings = settings;
         this.audioContext = null;
-        this.backgroundMusic = null;
-        this.currentMusicId = null;
+        // Multi-track registry: id -> { audio, sourceNode, gainNode, url }
+        this.tracks = new Map();
+        this.currentMusicId = null; // legacy
         this.customSounds = new Map(); // Map of id -> Audio object
         this.notificationSounds = {};
-        // Multi-track mixing
-        this.masterGain = null;
-        this.tracks = new Map(); // id -> { element, sourceNode, gainNode, volume, isBlob, url }
         this.initPromise = this.initialize();
     }
 
@@ -25,9 +23,6 @@ export class AudioManager {
     async initialize() {
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            this.masterGain = this.audioContext.createGain();
-            this.masterGain.gain.value = 0.8; // default master
-            this.masterGain.connect(this.audioContext.destination);
             this.createNotificationSounds();
             await this.loadCustomSounds();
             return true;
@@ -195,160 +190,51 @@ export class AudioManager {
         await this.loadCustomSounds();
     }
 
-    // ===== Multi-track Mixing =====
-    async addTrackFromSoundId(soundId, initialVolume = 80) {
-        const sound = this.customSounds.get(parseInt(soundId));
-        if (!sound) throw new Error('Sound not found');
-        return this.addTrackFromData({ id: `sound-${sound.id}-${Date.now()}`, data: sound.data, initialVolume });
-    }
-
-    async addTrackFromData({ id, data, initialVolume = 80 }) {
-        await this.ensureInitialized();
-
-        // Resolve URL
-        let url;
-        let isBlob = false;
-        if (data instanceof Blob) {
-            url = storageManager.createBlobURL(data);
-            isBlob = true;
-        } else if (typeof data === 'string') {
-            url = data;
-        } else {
-            throw new Error('Invalid sound data');
-        }
-
-        // Create media element + source node
-        const element = new Audio(url);
-        element.loop = true;
-        element.crossOrigin = 'anonymous';
-
-        let sourceNode;
-        try {
-            sourceNode = this.audioContext.createMediaElementSource(element);
-        } catch (e) {
-            // CORS or element reuse error fallback: play element unmanaged
-            await element.play().catch(() => {});
-            this.tracks.set(id, { element, sourceNode: null, gainNode: null, volume: initialVolume, isBlob, url });
-            element.volume = initialVolume / 100;
-            return id;
-        }
-
-        const gainNode = this.audioContext.createGain();
-        gainNode.gain.value = initialVolume / 100;
-        sourceNode.connect(gainNode);
-        gainNode.connect(this.masterGain);
-
-        await element.play().catch(() => {});
-
-        this.tracks.set(id, { element, sourceNode, gainNode, volume: initialVolume, isBlob, url });
-        return id;
-    }
-
-    removeTrack(id) {
-        const track = this.tracks.get(id);
-        if (!track) return;
-        try {
-            track.element.pause();
-            track.element.currentTime = 0;
-        } catch {}
-        try {
-            if (track.sourceNode) track.sourceNode.disconnect();
-            if (track.gainNode) track.gainNode.disconnect();
-        } catch {}
-        if (track.isBlob && track.url?.startsWith('blob:')) {
-            URL.revokeObjectURL(track.url);
-        }
-        this.tracks.delete(id);
-    }
-
-    setTrackVolume(id, volume) {
-        const track = this.tracks.get(id);
-        if (!track) return;
-        track.volume = volume;
-        if (track.gainNode) {
-            track.gainNode.gain.value = volume / 100;
-        } else if (track.element) {
-            track.element.volume = volume / 100;
-        }
-    }
-
-    setMasterVolume(volume) {
-        if (this.masterGain) {
-            this.masterGain.gain.value = Math.max(0, Math.min(1, volume / 100));
-        }
-    }
-
-    listTracks() {
-        return Array.from(this.tracks.entries()).map(([id, t]) => ({ id, volume: t.volume }));
-    }
-
-    async syncSelection(selectedIds = [], perTrackVolumes = {}) {
-        await this.ensureInitialized();
-        // Remove tracks not in selectedIds
-        const selectedSet = new Set((selectedIds || []).map(x => x.toString()));
-        Array.from(this.tracks.keys()).forEach(id => {
-            // Only manage tracks created for settings selection (prefix 'sound-')
-            if (id.startsWith('sound-') && !selectedSet.has(id.split('-')[1])) {
-                this.removeTrack(id);
-            }
-        });
-
-        // Add new tracks
-        for (const sid of selectedSet) {
-            const trackIdPrefix = `sound-${sid}`;
-            const existing = Array.from(this.tracks.keys()).some(id => id.startsWith(trackIdPrefix));
-            const vol = typeof perTrackVolumes[sid] === 'number' ? perTrackVolumes[sid] : 80;
-            if (!existing) {
-                await this.addTrackFromSoundId(sid, vol);
-            } else {
-                // Update volume
-                const foundId = Array.from(this.tracks.keys()).find(id => id.startsWith(trackIdPrefix));
-                if (foundId) this.setTrackVolume(foundId, vol);
-            }
-        }
-    }
-
     /**
      * Start background music
      */
     async startBackgroundMusic(musicId = null) {
         if (!this.settings.enableBackgroundMusic) return;
 
-        // Stop current music first
-        this.stopBackgroundMusic();
-
         try {
-            const idToPlay = musicId || this.currentMusicId || this.settings.backgroundMusicType;
+            // Determine selected tracks (multi) or fallback to legacy single
+            const selections = Array.isArray(this.settings.selectedMusicTracks) && this.settings.selectedMusicTracks.length > 0
+                ? this.settings.selectedMusicTracks
+                : (this.settings.backgroundMusicType && this.settings.backgroundMusicType !== 'none'
+                    ? [{ id: this.settings.backgroundMusicType, volume: this.settings.backgroundMusicVolume, name: 'Track' }]
+                    : []);
 
-            if (!idToPlay || idToPlay === 'none') {
-                return;
+            // Start each selected track
+            for (const sel of selections) {
+                const id = parseInt(sel.id);
+                const sound = this.customSounds.get(id);
+                if (sound) {
+                    await this.ensureTrackPlaying(id, sound, sel.volume);
+                }
             }
-
-            // Check if it's a custom sound
-            const customSound = this.customSounds.get(parseInt(idToPlay));
-            if (customSound) {
-                await this.playCustomSound(customSound);
-            } else {
-                console.warn('No music to play');
-            }
-
-            this.currentMusicId = idToPlay;
         } catch (error) {
             console.error('Background music failed to start:', error);
         }
     }
 
-    /**
-     * Play custom sound from IndexedDB
-     */
-    async playCustomSound(sound) {
-        let audioURL;
+    // Create or start a track with gain control and looping
+    async ensureTrackPlaying(id, sound, volumePercent) {
+        const existing = this.tracks.get(id);
+        if (existing && existing.audio) {
+            // just ensure playing and volume
+            existing.audio.loop = true;
+            existing.audio.volume = (typeof volumePercent === 'number' ? volumePercent : this.settings.backgroundMusicVolume) / 100;
+            try { await existing.audio.play(); } catch {}
+            if (existing.gainNode) {
+                existing.gainNode.gain.setValueAtTime(existing.audio.volume, this.audioContext.currentTime);
+            }
+            return;
+        }
 
+        let audioURL;
         if (sound.data instanceof Blob) {
             audioURL = storageManager.createBlobURL(sound.data);
-        } else if (typeof sound.data === 'string' && sound.data.startsWith('data:')) {
-            audioURL = sound.data;
-        } else if (typeof sound.data === 'string' && sound.data.startsWith('http')) {
+        } else if (typeof sound.data === 'string') {
             audioURL = sound.data;
         } else {
             console.error('Invalid sound data format');
@@ -357,42 +243,54 @@ export class AudioManager {
 
         const audio = new Audio(audioURL);
         audio.loop = true;
-        audio.volume = this.settings.backgroundMusicVolume / 100 * 0.4;
+        // Base element volume used as starting point; main control via GainNode
+        const vol = (typeof volumePercent === 'number' ? volumePercent : this.settings.backgroundMusicVolume) / 100;
+        audio.volume = vol;
 
+        // Hook restart safety
+        audio.addEventListener('ended', () => {
+            try { audio.currentTime = 0; audio.play().catch(() => {}); } catch {}
+        });
+
+        // Connect to Web Audio for per-track gain
+        let sourceNode = null;
+        let gainNode = null;
         try {
-            await audio.play();
-            this.backgroundMusic = audio;
-
-            // Store Blob URL for cleanup if needed
-            if (audioURL.startsWith('blob:')) {
-                this.backgroundMusic._blobURL = audioURL;
+            if (this.audioContext && this.audioContext.state !== 'closed') {
+                sourceNode = this.audioContext.createMediaElementSource(audio);
+                gainNode = this.audioContext.createGain();
+                gainNode.gain.value = vol;
+                sourceNode.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
             }
-        } catch (error) {
-            console.error('Error playing custom sound:', error);
-            if (audioURL.startsWith('blob:')) {
-                URL.revokeObjectURL(audioURL);
-            }
+        } catch (e) {
+            console.warn('MediaElementSource connection failed (fallback to element volume):', e);
         }
+
+        try { await audio.play(); } catch (e) { /* likely autoplay policy until first gesture */ }
+
+        this.tracks.set(id, { audio, sourceNode, gainNode, url: audioURL });
     }
 
     /**
      * Stop background music
      */
     stopBackgroundMusic() {
-        if (this.backgroundMusic) {
+        // Stop and cleanup all tracks
+        for (const [id, t] of this.tracks.entries()) {
             try {
-                this.backgroundMusic.pause();
-                this.backgroundMusic.currentTime = 0;
-
-                // Clean up Blob URL if exists
-                if (this.backgroundMusic._blobURL) {
-                    URL.revokeObjectURL(this.backgroundMusic._blobURL);
+                t.audio.pause();
+                t.audio.currentTime = 0;
+                if (t.url && t.url.startsWith('blob:')) {
+                    try { URL.revokeObjectURL(t.url); } catch {}
                 }
+                if (t.sourceNode) { try { t.sourceNode.disconnect(); } catch {} }
+                if (t.gainNode) { try { t.gainNode.disconnect(); } catch {} }
             } catch (error) {
-                console.warn('Error stopping background music:', error);
+                console.warn('Error stopping track', id, error);
             }
-            this.backgroundMusic = null;
         }
+        this.tracks.clear();
     }
 
     /**
@@ -426,9 +324,13 @@ export class AudioManager {
      */
     setBackgroundMusicVolume(volume) {
         this.settings.backgroundMusicVolume = volume;
-
-        if (this.backgroundMusic) {
-            this.backgroundMusic.volume = volume / 100 * 0.4;
+        // Update default volume for any track that doesn't have a custom volume
+        for (const [, t] of this.tracks.entries()) {
+            if (t.gainNode) {
+                t.gainNode.gain.setValueAtTime(volume / 100, this.audioContext.currentTime);
+            } else {
+                t.audio.volume = volume / 100;
+            }
         }
     }
 
@@ -451,6 +353,44 @@ export class AudioManager {
      */
     getAvailableMusic() {
         return Array.from(this.customSounds.values());
+    }
+
+    /**
+     * Add/remove/update a specific music track by id
+     */
+    async addTrackById(id, volumePercent) {
+        const sound = this.customSounds.get(parseInt(id));
+        if (!sound) return;
+        await this.ensureTrackPlaying(parseInt(id), sound, volumePercent);
+    }
+
+    removeTrackById(id) {
+        const t = this.tracks.get(parseInt(id));
+        if (t) {
+            try { t.audio.pause(); } catch {}
+            try { if (t.sourceNode) t.sourceNode.disconnect(); } catch {}
+            try { if (t.gainNode) t.gainNode.disconnect(); } catch {}
+            try { if (t.url && t.url.startsWith('blob:')) URL.revokeObjectURL(t.url); } catch {}
+        }
+        this.tracks.delete(parseInt(id));
+    }
+
+    setTrackVolume(id, volumePercent) {
+        const t = this.tracks.get(parseInt(id));
+        if (!t) return;
+        const v = (volumePercent || 0) / 100;
+        if (t.gainNode) {
+            try { t.gainNode.gain.setValueAtTime(v, this.audioContext.currentTime); } catch {}
+        } else if (t.audio) {
+            t.audio.volume = v;
+        }
+    }
+
+    resumeAll() {
+        for (const [, t] of this.tracks.entries()) {
+            try { t.audio.play().catch(() => {}); } catch {}
+        }
+        try { if (this.audioContext && this.audioContext.state === 'suspended') this.audioContext.resume(); } catch {}
     }
 
     /**

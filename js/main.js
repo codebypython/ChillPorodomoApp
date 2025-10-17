@@ -219,18 +219,6 @@ class ChillPomodoroApp {
         // Visibility change (tab switching)
         document.addEventListener('visibilitychange', () => {
             this.timer.handleVisibilityChange();
-
-            // Attempt to resume background video and active audio tracks when returning
-            if (!document.hidden) {
-                const video = document.getElementById('backgroundVideo');
-                try { if (video && video.classList.contains('active') && video.paused) video.play().catch(() => {}); } catch {}
-
-                // Resume tracks that might have been auto-paused
-                const tracks = this.audioManager?.tracks ? Array.from(this.audioManager.tracks.values()) : [];
-                tracks.forEach(t => {
-                    try { if (t.element && t.element.paused) t.element.play().catch(() => {}); } catch {}
-                });
-            }
         });
 
         // Library actions
@@ -240,13 +228,6 @@ class ChillPomodoroApp {
 
         document.getElementById('addSoundBtn')?.addEventListener('click', () => {
             this.libraryManager.showAddSoundModal();
-        });
-
-        // Sounds mixing controls
-        document.getElementById('masterMixVolume')?.addEventListener('input', (e) => {
-            const vol = parseInt(e.target.value);
-            document.getElementById('masterMixVolumeDisplay').textContent = vol + '%';
-            this.audioManager.setMasterVolume(vol);
         });
 
         document.getElementById('savePresetBtn')?.addEventListener('click', () => {
@@ -279,19 +260,6 @@ class ChillPomodoroApp {
         document.getElementById('backgroundType')?.addEventListener('change', (e) => {
             this.settings.backgroundType = e.target.value;
             this.backgroundManager.applyBackground();
-        });
-
-        // Multi music select change
-        document.getElementById('multiMusicSelect')?.addEventListener('change', (e) => {
-            const options = Array.from(e.target.selectedOptions);
-            this.settings.selectedMusicIds = options.map(o => o.value);
-            this.settings.selectedMusicIds.forEach(id => {
-                if (typeof this.settings.selectedMusicVolumes[id] !== 'number') {
-                    this.settings.selectedMusicVolumes[id] = 80;
-                }
-            });
-            this.renderSelectedMusicVolumes();
-            this.audioManager.syncSelection(this.settings.selectedMusicIds, this.settings.selectedMusicVolumes);
         });
 
         // Modal controls
@@ -436,53 +404,63 @@ class ChillPomodoroApp {
 
         if (musicScroll) {
             let html = `
-                <button class="dropdown-item music-option ${!this.settings.backgroundMusicType || this.settings.backgroundMusicType === 'none' ? 'active' : ''}" data-music="none">
-                    <span class="item-icon">🚫</span>
+                <div class="dropdown-section-title">Chọn nhiều nhạc nền</div>
+                <div class="dropdown-divider"></div>
+                <label class="dropdown-item">
+                    <input type="checkbox" id="musicNoneCheckbox" ${(!this.settings.enableBackgroundMusic) ? 'checked' : ''} />
                     <span class="item-text">Không nhạc</span>
-                </button>
+                </label>
                 <div class="dropdown-divider"></div>
             `;
 
             const sounds = this.libraryManager.sounds;
+            const selectedIds = new Set((this.settings.selectedMusicTracks || []).map(t => t.id.toString()));
             if (sounds.length > 0) {
                 html += '<div class="dropdown-section-title">Nhạc nền</div>';
                 sounds.forEach(sound => {
-                    const isActive = this.settings.backgroundMusicType === sound.id.toString();
+                    const checked = selectedIds.has(sound.id.toString());
                     html += `
-                        <button class="dropdown-item music-option ${isActive ? 'active' : ''}" data-music="${sound.id}">
-                            <span class="item-icon">🎵</span>
+                        <label class="dropdown-item">
+                            <input type="checkbox" class="music-checkbox" data-id="${sound.id}" ${checked ? 'checked' : ''} />
                             <span class="item-text">${sound.name}</span>
-                        </button>
+                        </label>
                     `;
                 });
             }
 
             musicScroll.innerHTML = html;
 
-            // Add event listeners
-            musicScroll.querySelectorAll('.music-option').forEach(option => {
-                option.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const musicId = option.dataset.music;
+            // None checkbox
+            const noneCb = musicScroll.querySelector('#musicNoneCheckbox');
+            noneCb?.addEventListener('change', async (e) => {
+                const off = e.target.checked;
+                this.settings.enableBackgroundMusic = !off;
+                if (off) {
+                    // disable all tracks
+                    this.audioManager.stopBackgroundMusic();
+                } else {
+                    // start selected tracks
+                    await this.audioManager.startBackgroundMusic();
+                }
+                this.settings.save();
+                this.renderPerTrackSliders();
+            });
 
-                    // Update active state
-                    musicScroll.querySelectorAll('.music-option').forEach(opt => opt.classList.remove('active'));
-                    option.classList.add('active');
-
-                    // Apply music
-                    this.settings.backgroundMusicType = musicId;
-                    this.settings.enableBackgroundMusic = musicId !== 'none';
-                    this.settings.save();
-
-                    if (musicId !== 'none') {
-                        await this.audioManager.startBackgroundMusic(musicId);
+            // Music checkboxes
+            musicScroll.querySelectorAll('.music-checkbox').forEach(cb => {
+                cb.addEventListener('change', async (e) => {
+                    const id = cb.dataset.id;
+                    const sound = this.libraryManager.sounds.find(s => s.id.toString() === id.toString());
+                    if (cb.checked) {
+                        this.settings.addMusicTrack({ id, name: sound?.name, volume: this.settings.backgroundMusicVolume });
+                        this.settings.enableBackgroundMusic = true;
+                        await this.audioManager.addTrackById(id, this.settings.backgroundMusicVolume);
                     } else {
-                        this.audioManager.stopBackgroundMusic();
+                        this.settings.removeMusicTrack(id);
+                        this.audioManager.removeTrackById(id);
                     }
-
-                    musicDropdown.classList.remove('show');
-
-                    this.showNotification('Đã chọn nhạc nền!', 'success');
+                    this.settings.save();
+                    this.renderPerTrackSliders();
                 });
             });
         }
@@ -502,20 +480,53 @@ class ChillPomodoroApp {
         // Populate background type select
         this.populateBackgroundTypeSelect();
 
-        // Populate multi music select and per-track volumes
-        this.populateMultiMusicSelect();
-        this.renderSelectedMusicVolumes();
-
         // Render libraries
         this.libraryManager.renderAnimations();
         this.libraryManager.renderSounds();
         this.presetManager.renderPresets();
 
+        // Render per-track sliders
+        this.renderPerTrackSliders();
+
         // Switch to default tab
         this.switchTab('timer');
+    }
 
-        // Expose helpers for inline handlers
-        window.app = window.app || this;
+    // Render per-track volume sliders in settings
+    renderPerTrackSliders() {
+        const container = document.getElementById('perTrackVolumeContainer');
+        if (!container) return;
+
+        const tracks = this.settings.selectedMusicTracks || [];
+        if (!this.settings.enableBackgroundMusic || tracks.length === 0) {
+            container.innerHTML = '<div class="text-muted">Chưa chọn nhạc nền nào.</div>';
+            return;
+        }
+
+        container.innerHTML = tracks.map(t => {
+            const volume = typeof t.volume === 'number' ? t.volume : this.settings.backgroundMusicVolume;
+            return `
+                <div class="mt-2">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        <div style="font-weight:600;">${t.name || 'Track ' + t.id}</div>
+                        <div class="text-muted" id="trackVolLabel-${t.id}">${volume}%</div>
+                    </div>
+                    <input type="range" class="track-volume" data-id="${t.id}" min="0" max="100" value="${volume}">
+                </div>
+            `;
+        }).join('');
+
+        // Wire events
+        container.querySelectorAll('.track-volume').forEach(slider => {
+            slider.addEventListener('input', (e) => {
+                const id = slider.dataset.id;
+                const v = parseInt(slider.value);
+                const label = document.getElementById(`trackVolLabel-${id}`);
+                if (label) label.textContent = v + '%';
+                this.settings.setMusicTrackVolume(id, v);
+                this.audioManager.setTrackVolume(id, v);
+            });
+        });
     }
 
     /**
@@ -572,7 +583,6 @@ class ChillPomodoroApp {
         } else if (tabName === 'sounds') {
             this.libraryManager.renderSounds();
             this.populateDropdowns(); // Refresh dropdowns
-            this.renderActiveMix();
         } else if (tabName === 'presets') {
             this.presetManager.renderPresets();
         }
@@ -601,8 +611,7 @@ class ChillPomodoroApp {
         this.backgroundManager.applyBackground();
 
         if (this.settings.enableBackgroundMusic) {
-            this.audioManager.setMasterVolume(this.settings.backgroundMusicVolume);
-            this.audioManager.syncSelection(this.settings.selectedMusicIds, this.settings.selectedMusicVolumes);
+            this.audioManager.startBackgroundMusic();
         } else {
             this.audioManager.stopBackgroundMusic();
         }
@@ -617,81 +626,6 @@ class ChillPomodoroApp {
         this.populateBackgroundTypeSelect();
 
         this.showNotification('Cài đặt đã được lưu!', 'success');
-    }
-
-    populateMultiMusicSelect() {
-        const select = document.getElementById('multiMusicSelect');
-        if (!select) return;
-
-        const sounds = this.libraryManager.sounds;
-        select.innerHTML = sounds.map(s => {
-            const selected = (this.settings.selectedMusicIds || []).includes(s.id.toString()) ? 'selected' : '';
-            return `<option value="${s.id}" ${selected}>${s.name}</option>`;
-        }).join('');
-    }
-
-    renderSelectedMusicVolumes() {
-        const container = document.getElementById('selectedMusicVolumes');
-        if (!container) return;
-        const ids = this.settings.selectedMusicIds || [];
-        if (ids.length === 0) {
-            container.innerHTML = '<div class="text-muted">Chưa chọn nhạc nền nào.</div>';
-            return;
-        }
-        container.innerHTML = ids.map(id => {
-            const sound = this.libraryManager.sounds.find(s => s.id.toString() === id);
-            const name = sound ? sound.name : `Sound ${id}`;
-            const vol = typeof this.settings.selectedMusicVolumes[id] === 'number' ? this.settings.selectedMusicVolumes[id] : 80;
-            return `
-                <div class="setting-item">
-                    <label>${name}: <span id="selVol-${id}">${vol}%</span></label>
-                    <input type="range" min="0" max="100" value="${vol}" oninput="window.app.onSelectedMusicVolumeChange('${id}', this.value)">
-                </div>
-            `;
-        }).join('');
-    }
-
-    onSelectedMusicVolumeChange(id, value) {
-        this.settings.selectedMusicVolumes[id] = parseInt(value);
-        const label = document.getElementById(`selVol-${id}`);
-        if (label) label.textContent = `${value}%`;
-        this.audioManager.syncSelection(this.settings.selectedMusicIds, this.settings.selectedMusicVolumes);
-    }
-
-    // ===== Sounds Mix UI =====
-    renderActiveMix() {
-        const container = document.getElementById('soundsMix');
-        if (!container) return;
-        const tracks = this.audioManager.listTracks();
-        if (tracks.length === 0) {
-            container.innerHTML = '<div class="empty-state"><p>Chưa có track nào đang phát. Hãy thêm hoặc dùng sound để phát.</p></div>';
-            return;
-        }
-        container.innerHTML = tracks.map(t => `
-            <div class="library-item" data-id="${t.id}">
-                <div class="library-item-info">
-                    <div class="library-item-name">Track: ${t.id}</div>
-                    <div class="library-item-meta">Volume: <span id="vol-${t.id}">${t.volume}%</span></div>
-                </div>
-                <div class="setting-item" style="margin-bottom:0;">
-                    <input type="range" min="0" max="100" value="${t.volume}" oninput="window.app.setTrackVolumeUI('${t.id}', this.value)">
-                </div>
-                <div class="library-item-actions" style="margin-top:0.75rem;">
-                    <button class="item-btn delete" onclick="window.app.removeTrackUI('${t.id}')">Remove</button>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    setTrackVolumeUI(id, value) {
-        this.audioManager.setTrackVolume(id, parseInt(value));
-        const label = document.getElementById(`vol-${id}`);
-        if (label) label.textContent = `${value}%`;
-    }
-
-    removeTrackUI(id) {
-        this.audioManager.removeTrack(id);
-        this.renderActiveMix();
     }
 
     /**

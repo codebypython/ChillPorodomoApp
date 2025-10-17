@@ -14,11 +14,9 @@ export class Settings {
         this.enableNotifications = true;
         this.notificationVolume = 70;
         this.enableBackgroundMusic = false;
-        this.backgroundMusicVolume = 50; // Master volume for legacy single-track
-        this.backgroundMusicType = 'none'; // Legacy single-track id (kept for compatibility)
-        // New multi-track selection
-        this.selectedMusicIds = []; // array of sound ids (as strings)
-        this.selectedMusicVolumes = {}; // { [id: string]: number(0-100) }
+        this.backgroundMusicVolume = 50;
+        this.backgroundMusicType = 'none'; // Legacy single-track (kept for compat)
+        this.selectedMusicTracks = []; // [{ id: string, name: string, volume: number }]
         this.backgroundType = 'none'; // Default no background
         this.backgroundOpacity = 80;
         this.enableAnimations = true;
@@ -34,6 +32,15 @@ export class Settings {
         const saved = storageManager.getSettings();
         if (saved) {
             Object.assign(this, saved);
+            if (!Array.isArray(this.selectedMusicTracks)) {
+                this.selectedMusicTracks = [];
+            }
+            if (this.backgroundMusicType && this.backgroundMusicType !== 'none') {
+                const exists = this.selectedMusicTracks.some(t => t.id?.toString() === this.backgroundMusicType.toString());
+                if (!exists) {
+                    this.selectedMusicTracks.push({ id: this.backgroundMusicType.toString(), name: 'Track', volume: this.backgroundMusicVolume || 50 });
+                }
+            }
         }
         this.apply();
         return this;
@@ -53,8 +60,7 @@ export class Settings {
             enableBackgroundMusic: this.enableBackgroundMusic,
             backgroundMusicVolume: this.backgroundMusicVolume,
             backgroundMusicType: this.backgroundMusicType,
-            selectedMusicIds: this.selectedMusicIds,
-            selectedMusicVolumes: this.selectedMusicVolumes,
+            selectedMusicTracks: this.selectedMusicTracks,
             backgroundType: this.backgroundType,
             backgroundOpacity: this.backgroundOpacity,
             enableAnimations: this.enableAnimations,
@@ -122,7 +128,6 @@ export class Settings {
         this.setInputValue('notificationVolume', this.notificationVolume);
         this.setInputValue('enableBackgroundMusic', this.enableBackgroundMusic, 'checkbox');
         this.setInputValue('backgroundMusicVolume', this.backgroundMusicVolume);
-        // Multi-select music will be populated by main.js
 
         // Display settings
         this.setInputValue('backgroundType', this.backgroundType);
@@ -153,7 +158,6 @@ export class Settings {
         this.notificationVolume = this.getInputValue('notificationVolume', 'number');
         this.enableBackgroundMusic = this.getInputValue('enableBackgroundMusic', 'checkbox');
         this.backgroundMusicVolume = this.getInputValue('backgroundMusicVolume', 'number');
-        // Multi-select handled in main.js, which updates selectedMusicIds/Volumes before save
 
         // Display settings
         this.backgroundType = this.getInputValue('backgroundType', 'text');
@@ -164,6 +168,33 @@ export class Settings {
         this.autoStartPomodoros = this.getInputValue('autoStartPomodoros', 'checkbox');
 
         this.save();
+    }
+
+    // ===== Music track helpers =====
+    addMusicTrack(track) {
+        const id = track.id.toString();
+        const exists = this.selectedMusicTracks.some(t => t.id.toString() === id);
+        if (!exists) {
+            const volume = typeof track.volume === 'number' ? track.volume : (this.backgroundMusicVolume || 50);
+            this.selectedMusicTracks.push({ id, name: track.name || 'Track', volume });
+            this.save();
+        }
+    }
+
+    removeMusicTrack(id) {
+        const before = this.selectedMusicTracks.length;
+        this.selectedMusicTracks = this.selectedMusicTracks.filter(t => t.id.toString() !== id.toString());
+        if (this.selectedMusicTracks.length !== before) {
+            this.save();
+        }
+    }
+
+    setMusicTrackVolume(id, volume) {
+        const t = this.selectedMusicTracks.find(x => x.id.toString() === id.toString());
+        if (t) {
+            t.volume = volume;
+            this.save();
+        }
     }
 
     /**
