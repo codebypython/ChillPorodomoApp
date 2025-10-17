@@ -1,0 +1,358 @@
+/**
+ * AudioManager - Audio Playback Management
+ * Handles background music, notification sounds, and custom audio
+ */
+
+import { storageManager } from './StorageManager.js';
+
+export class AudioManager {
+    constructor(settings) {
+        this.settings = settings;
+        this.audioContext = null;
+        this.backgroundMusic = null;
+        this.currentMusicId = null;
+        this.customSounds = new Map(); // Map of id -> Audio object
+        this.notificationSounds = {};
+        this.initPromise = this.initialize();
+    }
+
+    /**
+     * Initialize Web Audio API and create notification sounds
+     */
+    async initialize() {
+        try {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.createNotificationSounds();
+            await this.loadCustomSounds();
+            return true;
+        } catch (error) {
+            console.error('Audio initialization failed:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Ensure audio context is initialized
+     */
+    async ensureInitialized() {
+        await this.initPromise;
+    }
+
+    /**
+     * Create simple notification sounds using Web Audio API
+     */
+    createNotificationSounds() {
+        this.notificationSounds = {
+            workComplete: () => this.playWorkCompleteSound(),
+            breakComplete: () => this.playBreakCompleteSound(),
+            warning: () => this.playWarningSound(),
+            tick: () => this.playTickSound()
+        };
+    }
+
+    /**
+     * Play work complete notification sound (pleasant ascending melody)
+     */
+    playWorkCompleteSound() {
+        if (!this.audioContext || !this.settings.enableNotifications) return;
+
+        const frequencies = [523, 659, 783, 1047]; // C, E, G, C (major chord)
+        const gainNode = this.audioContext.createGain();
+        gainNode.connect(this.audioContext.destination);
+
+        frequencies.forEach((freq, index) => {
+            const oscillator = this.audioContext.createOscillator();
+            const noteGain = this.audioContext.createGain();
+
+            oscillator.connect(noteGain);
+            noteGain.connect(gainNode);
+
+            oscillator.frequency.value = freq;
+            oscillator.type = 'sine';
+
+            const startTime = this.audioContext.currentTime + (index * 0.15);
+            const duration = 0.4;
+
+            noteGain.gain.setValueAtTime(0, startTime);
+            noteGain.gain.linearRampToValueAtTime(this.settings.notificationVolume / 100 * 0.3, startTime + 0.05);
+            noteGain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+            oscillator.start(startTime);
+            oscillator.stop(startTime + duration);
+        });
+    }
+
+    /**
+     * Play break complete notification sound (softer bell-like sound)
+     */
+    playBreakCompleteSound() {
+        if (!this.audioContext || !this.settings.enableNotifications) return;
+
+        const oscillator = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+
+        const startTime = this.audioContext.currentTime;
+        const duration = 1.0;
+
+        gainNode.gain.setValueAtTime(0, startTime);
+        gainNode.gain.linearRampToValueAtTime(this.settings.notificationVolume / 100 * 0.2, startTime + 0.1);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+        oscillator.start(startTime);
+        oscillator.stop(startTime + duration);
+    }
+
+    /**
+     * Play warning notification sound
+     */
+    playWarningSound() {
+        if (!this.audioContext || !this.settings.enableNotifications) return;
+
+        const oscillator = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+
+        oscillator.frequency.value = 400;
+        oscillator.type = 'square';
+
+        const duration = 0.1;
+
+        gainNode.gain.setValueAtTime(this.settings.notificationVolume / 100 * 0.1, this.audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + duration);
+
+        oscillator.start(this.audioContext.currentTime);
+        oscillator.stop(this.audioContext.currentTime + duration);
+    }
+
+    /**
+     * Play tick sound (subtle)
+     */
+    playTickSound() {
+        if (!this.audioContext || !this.settings.enableNotifications) return;
+
+        const oscillator = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+
+        oscillator.frequency.value = 1000;
+        oscillator.type = 'sine';
+
+        const duration = 0.05;
+
+        gainNode.gain.setValueAtTime(this.settings.notificationVolume / 100 * 0.05, this.audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + duration);
+
+        oscillator.start(this.audioContext.currentTime);
+        oscillator.stop(this.audioContext.currentTime + duration);
+    }
+
+    /**
+     * Play notification by type
+     */
+    playNotification(type) {
+        if (this.notificationSounds[type]) {
+            this.notificationSounds[type]();
+        }
+    }
+
+    // ===== Background Music Methods =====
+
+    /**
+     * Load custom sounds from IndexedDB
+     */
+    async loadCustomSounds() {
+        try {
+            const sounds = await storageManager.getAllItems('sounds');
+            for (const sound of sounds) {
+                this.customSounds.set(sound.id, sound);
+            }
+        } catch (error) {
+            console.error('Error loading custom sounds:', error);
+        }
+    }
+
+    /**
+     * Reload custom sounds from IndexedDB
+     */
+    async reloadCustomSounds() {
+        this.customSounds.clear();
+        await this.loadCustomSounds();
+    }
+
+    /**
+     * Start background music
+     */
+    async startBackgroundMusic(musicId = null) {
+        if (!this.settings.enableBackgroundMusic) return;
+
+        // Stop current music first
+        this.stopBackgroundMusic();
+
+        try {
+            const idToPlay = musicId || this.currentMusicId || this.settings.backgroundMusicType;
+
+            if (!idToPlay || idToPlay === 'none') {
+                return;
+            }
+
+            // Check if it's a custom sound
+            const customSound = this.customSounds.get(parseInt(idToPlay));
+            if (customSound) {
+                await this.playCustomSound(customSound);
+            } else {
+                console.warn('No music to play');
+            }
+
+            this.currentMusicId = idToPlay;
+        } catch (error) {
+            console.error('Background music failed to start:', error);
+        }
+    }
+
+    /**
+     * Play custom sound from IndexedDB
+     */
+    async playCustomSound(sound) {
+        let audioURL;
+
+        if (sound.data instanceof Blob) {
+            audioURL = storageManager.createBlobURL(sound.data);
+        } else if (typeof sound.data === 'string' && sound.data.startsWith('data:')) {
+            audioURL = sound.data;
+        } else if (typeof sound.data === 'string' && sound.data.startsWith('http')) {
+            audioURL = sound.data;
+        } else {
+            console.error('Invalid sound data format');
+            return;
+        }
+
+        const audio = new Audio(audioURL);
+        audio.loop = true;
+        audio.volume = this.settings.backgroundMusicVolume / 100 * 0.4;
+
+        try {
+            await audio.play();
+            this.backgroundMusic = audio;
+
+            // Store Blob URL for cleanup if needed
+            if (audioURL.startsWith('blob:')) {
+                this.backgroundMusic._blobURL = audioURL;
+            }
+        } catch (error) {
+            console.error('Error playing custom sound:', error);
+            if (audioURL.startsWith('blob:')) {
+                URL.revokeObjectURL(audioURL);
+            }
+        }
+    }
+
+    /**
+     * Stop background music
+     */
+    stopBackgroundMusic() {
+        if (this.backgroundMusic) {
+            try {
+                this.backgroundMusic.pause();
+                this.backgroundMusic.currentTime = 0;
+
+                // Clean up Blob URL if exists
+                if (this.backgroundMusic._blobURL) {
+                    URL.revokeObjectURL(this.backgroundMusic._blobURL);
+                }
+            } catch (error) {
+                console.warn('Error stopping background music:', error);
+            }
+            this.backgroundMusic = null;
+        }
+    }
+
+    /**
+     * Pause background music
+     */
+    pauseBackgroundMusic() {
+        if (this.backgroundMusic && !this.backgroundMusic.paused) {
+            try {
+                this.backgroundMusic.pause();
+            } catch (error) {
+                console.warn('Error pausing background music:', error);
+            }
+        }
+    }
+
+    /**
+     * Resume background music
+     */
+    resumeBackgroundMusic() {
+        if (this.backgroundMusic && this.backgroundMusic.paused) {
+            try {
+                this.backgroundMusic.play().catch(console.warn);
+            } catch (error) {
+                console.warn('Error resuming background music:', error);
+            }
+        }
+    }
+
+    /**
+     * Set background music volume
+     */
+    setBackgroundMusicVolume(volume) {
+        this.settings.backgroundMusicVolume = volume;
+
+        if (this.backgroundMusic) {
+            this.backgroundMusic.volume = volume / 100 * 0.4;
+        }
+    }
+
+    /**
+     * Toggle background music on/off
+     */
+    toggleBackgroundMusic() {
+        if (this.settings.enableBackgroundMusic) {
+            this.stopBackgroundMusic();
+            this.settings.enableBackgroundMusic = false;
+        } else {
+            this.settings.enableBackgroundMusic = true;
+            this.startBackgroundMusic();
+        }
+        this.settings.save();
+    }
+
+    /**
+     * Get list of available background music (custom sounds)
+     */
+    getAvailableMusic() {
+        return Array.from(this.customSounds.values());
+    }
+
+    /**
+     * Check if music is currently playing
+     */
+    isPlaying() {
+        return this.backgroundMusic && !this.backgroundMusic.paused;
+    }
+
+    /**
+     * Cleanup resources
+     */
+    cleanup() {
+        this.stopBackgroundMusic();
+
+        if (this.audioContext) {
+            this.audioContext.close();
+            this.audioContext = null;
+        }
+
+        this.customSounds.clear();
+    }
+}
+

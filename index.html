@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="description" content="ChillPomodoro - Ứng dụng Pomodoro Timer với nhạc nền và video background tùy chỉnh">
+    <meta name="theme-color" content="#667eea">
+    <title>ChillPomodoro - Focus & Relax</title>
+    
+    <!-- Preconnect for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/style.css">
+    
+    <!-- Inline critical CSS for viewport -->
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            height: 100dvh;
+            margin: 0;
+            padding: 0;
+            overscroll-behavior: none;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            height: 100dvh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+            transition: opacity 0.5s ease;
+        }
+        
+        #loading.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .loader {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading">
+        <div class="loader"></div>
+    </div>
+
+    <!-- Background Layers -->
+    <div class="background-layers">
+        <!-- Video Background -->
+        <video id="backgroundVideo" class="background-video" autoplay loop muted playsinline webkit-playsinline="true" x5-video-player-type="h5" x5-video-player-fullscreen="true" preload="auto">
+            <source src="" type="video/mp4">
+        </video>
+        
+        <!-- Image Background -->
+        <div id="backgroundImage" class="background-image"></div>
+        
+        <!-- Animated Backgrounds -->
+        <div id="floatingShapes" class="background-animation"></div>
+    </div>
+
+    <!-- Main App Container -->
+    <div id="app" class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <h1 class="app-title">
+                    <span class="title-icon">🎯</span>
+                    ChillPomodoro
+                </h1>
+            </div>
+            
+            <div class="header-right">
+                <!-- Background Dropdown -->
+                <div class="header-dropdown">
+                    <button id="backgroundDropdownToggle" class="header-btn" title="Chọn nền">
+                        <span>🎨</span>
+                    </button>
+                    <div id="backgroundDropdown" class="dropdown-menu">
+                        <div class="dropdown-header">Chọn Background</div>
+                        <div class="dropdown-scroll">
+                            <button class="dropdown-item bg-option" data-bg="none">
+                                <span class="item-icon">🚫</span>
+                                <span class="item-text">Không nền</span>
+                            </button>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-section-title">Videos</div>
+                            <!-- Will be populated by JS -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Music Dropdown -->
+                <div class="header-dropdown">
+                    <button id="musicDropdownToggle" class="header-btn" title="Chọn nhạc">
+                        <span>🎵</span>
+                    </button>
+                    <div id="musicDropdown" class="dropdown-menu">
+                        <div class="dropdown-header">Chọn Nhạc Nền</div>
+                        <div class="dropdown-scroll">
+                            <!-- Will be populated by JS -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Music Toggle -->
+                <button id="musicToggle" class="header-btn" title="Bật/tắt nhạc">
+                    <span>🔇</span>
+                </button>
+                
+                <!-- Background Only Mode -->
+                <button id="backgroundToggle" class="header-btn" title="Chế độ chỉ nền">
+                    <span>🖼️</span>
+                </button>
+                
+                <!-- Theme Toggle -->
+                <button id="themeToggle" class="header-btn" title="Chuyển theme">
+                    <span class="theme-icon">🌙</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="app-nav">
+            <button class="nav-tab active" data-tab="timer">
+                <span class="tab-icon">⏱️</span>
+                <span class="tab-label">Timer</span>
+            </button>
+            <button class="nav-tab" data-tab="animations">
+                <span class="tab-icon">🎬</span>
+                <span class="tab-label">Animations</span>
+            </button>
+            <button class="nav-tab" data-tab="sounds">
+                <span class="tab-icon">🎵</span>
+                <span class="tab-label">Sounds</span>
+            </button>
+            <button class="nav-tab" data-tab="presets">
+                <span class="tab-icon">💾</span>
+                <span class="tab-label">Presets</span>
+            </button>
+            <button class="nav-tab" data-tab="settings">
+                <span class="tab-icon">⚙️</span>
+                <span class="tab-label">Settings</span>
+            </button>
+            <button class="nav-tab" data-tab="stats">
+                <span class="tab-icon">📊</span>
+                <span class="tab-label">Stats</span>
+            </button>
+        </nav>
+
+        <!-- Tab Contents -->
+        <main class="app-main">
+            <!-- Timer Tab -->
+            <div id="timer-tab" class="tab-content active">
+                <div class="timer-container">
+                    <!-- Timer Circle -->
+                    <div class="timer-circle">
+                        <svg class="progress-ring" width="300" height="300">
+                            <circle class="progress-ring-bg" cx="150" cy="150" r="120" />
+                            <circle id="progressCircle" class="progress-ring-fill" cx="150" cy="150" r="120" />
+                        </svg>
+                        <div class="timer-display">
+                            <div id="timeDisplay" class="time-text">25:00</div>
+                            <div id="sessionType" class="session-text">Làm việc</div>
+                            <div class="session-info">
+                                <span>Phiên </span>
+                                <span id="sessionCount">1</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Timer Controls -->
+                    <div class="timer-controls">
+                        <button id="startBtn" class="control-btn primary">
+                            <span class="btn-icon">▶</span>
+                            <span class="btn-text">Bắt đầu</span>
+                        </button>
+                        <button id="pauseBtn" class="control-btn warning" style="display: none;">
+                            <span class="btn-icon">⏸</span>
+                            <span class="btn-text">Tạm dừng</span>
+                        </button>
+                        <button id="resetBtn" class="control-btn secondary">
+                            <span class="btn-icon">↻</span>
+                            <span class="btn-text">Đặt lại</span>
+                        </button>
+                        <button id="skipBtn" class="control-btn info">
+                            <span class="btn-icon">⏭</span>
+                            <span class="btn-text">Bỏ qua</span>
+                        </button>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="quick-actions">
+                        <div class="quick-actions-title">Thời gian nhanh</div>
+                        <div class="quick-actions-grid">
+                            <button class="quick-btn" data-action="work" data-time="5">5 phút</button>
+                            <button class="quick-btn" data-action="work" data-time="15">15 phút</button>
+                            <button class="quick-btn" data-action="work" data-time="25">25 phút</button>
+                            <button class="quick-btn" data-action="work" data-time="45">45 phút</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Animations Tab -->
+            <div id="animations-tab" class="tab-content">
+                <div class="library-container">
+                    <div class="library-header">
+                        <h2>Kho Animation</h2>
+                        <p class="library-description">Quản lý video và ảnh background của bạn</p>
+                    </div>
+
+                    <div class="library-actions">
+                        <button id="addAnimationBtn" class="btn-action primary">
+                            <span>➕</span> Thêm Animation
+                        </button>
+                    </div>
+
+                    <div id="animationsList" class="library-grid">
+                        <!-- Will be populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sounds Tab -->
+            <div id="sounds-tab" class="tab-content">
+                <div class="library-container">
+                    <div class="library-header">
+                        <h2>Kho Sound</h2>
+                        <p class="library-description">Quản lý nhạc nền của bạn</p>
+                    </div>
+
+                    <div class="library-actions">
+                        <button id="addSoundBtn" class="btn-action primary">
+                            <span>➕</span> Thêm Sound
+                        </button>
+                    </div>
+
+                    <div id="soundsList" class="library-grid">
+                        <!-- Will be populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Presets Tab -->
+            <div id="presets-tab" class="tab-content">
+                <div class="library-container">
+                    <div class="library-header">
+                        <h2>Preset Manager</h2>
+                        <p class="library-description">Lưu và quản lý các cấu hình yêu thích</p>
+                    </div>
+
+                    <div class="library-actions">
+                        <button id="savePresetBtn" class="btn-action primary">
+                            <span>💾</span> Lưu Preset Hiện Tại
+                        </button>
+                    </div>
+
+                    <div id="presetsList" class="library-grid">
+                        <!-- Will be populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="settings-tab" class="tab-content">
+                <div class="settings-container">
+                    <h2>Cài Đặt</h2>
+
+                    <div class="settings-section">
+                        <h3>⏱️ Timer</h3>
+                        <div class="setting-item">
+                            <label>Thời gian làm việc (phút)</label>
+                            <input type="number" id="workDuration" min="1" max="60" value="25">
+                        </div>
+                        <div class="setting-item">
+                            <label>Thời gian nghỉ ngắn (phút)</label>
+                            <input type="number" id="shortBreakDuration" min="1" max="30" value="5">
+                        </div>
+                        <div class="setting-item">
+                            <label>Thời gian nghỉ dài (phút)</label>
+                            <input type="number" id="longBreakDuration" min="1" max="60" value="15">
+                        </div>
+                        <div class="setting-item">
+                            <label>Số phiên trước nghỉ dài</label>
+                            <input type="number" id="longBreakInterval" min="2" max="10" value="4">
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>🎵 Âm Thanh</h3>
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="enableNotifications" checked>
+                                Bật thông báo âm thanh
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>Âm lượng thông báo: <span id="volumeDisplay">70%</span></label>
+                            <input type="range" id="notificationVolume" min="0" max="100" value="70">
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="enableBackgroundMusic">
+                                Bật nhạc nền
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>Âm lượng nhạc nền: <span id="musicVolumeDisplay">50%</span></label>
+                            <input type="range" id="backgroundMusicVolume" min="0" max="100" value="50">
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>🎨 Giao Diện</h3>
+                        <div class="setting-item">
+                            <label>Loại background</label>
+                            <select id="backgroundType">
+                                <option value="none">Không nền</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Độ mờ background: <span id="opacityDisplay">80%</span></label>
+                            <input type="range" id="backgroundOpacity" min="0" max="100" value="80">
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>🎯 Hành Vi</h3>
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="autoStartBreaks">
+                                Tự động bắt đầu nghỉ
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <label>
+                                <input type="checkbox" id="autoStartPomodoros">
+                                Tự động bắt đầu làm việc
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="settings-actions">
+                        <button id="saveSettings" class="btn-action primary">
+                            💾 Lưu Cài Đặt
+                        </button>
+                        <button id="resetSettings" class="btn-action secondary">
+                            ↻ Đặt Lại Mặc Định
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Tab -->
+            <div id="stats-tab" class="tab-content">
+                <div class="stats-container">
+                    <h2>Thống Kê</h2>
+
+                    <div class="stats-summary">
+                        <div class="stat-card">
+                            <div class="stat-icon">🍅</div>
+                            <div class="stat-value" id="totalPomodoros">0</div>
+                            <div class="stat-label">Tổng Pomodoros</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">⏱️</div>
+                            <div class="stat-value" id="totalWorkTime">0m</div>
+                            <div class="stat-label">Tổng Thời Gian</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">☕</div>
+                            <div class="stat-value" id="totalBreakTime">0m</div>
+                            <div class="stat-label">Tổng Nghỉ</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">🔥</div>
+                            <div class="stat-value" id="currentStreak">0</div>
+                            <div class="stat-label">Chuỗi Ngày</div>
+                        </div>
+                    </div>
+
+                    <div class="stats-chart">
+                        <h3>Hoạt động 7 ngày qua</h3>
+                        <canvas id="activityChart" width="800" height="400"></canvas>
+                    </div>
+
+                    <div class="stats-actions">
+                        <button id="exportBtn" class="btn-action secondary">
+                            📥 Export Dữ Liệu
+                        </button>
+                        <button id="clearDataBtn" class="btn-action danger">
+                            🗑️ Xóa Tất Cả
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Background Only Mode Overlay -->
+    <div id="backgroundOnlyOverlay" class="background-only-overlay">
+        <button id="exitBackgroundMode" class="exit-bg-btn" title="Thoát chế độ background (ESC)">
+            ✕
+        </button>
+    </div>
+
+    <!-- Modal for Add/Edit Items -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Thêm Animation</h3>
+                <button class="modal-close">✕</button>
+            </div>
+            <div class="modal-body">
+                <div id="modalForm">
+                    <!-- Form will be populated by JS -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="modalCancelBtn" class="btn-action secondary">Hủy</button>
+                <button id="modalSaveBtn" class="btn-action primary">Lưu</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div id="notification" class="notification">
+        <span id="notificationText"></span>
+        <button class="notification-close">✕</button>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
+
