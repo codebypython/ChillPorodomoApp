@@ -57,6 +57,20 @@ export class BackgroundManager {
                 this.videoElement.play().catch(console.warn);
             }
         });
+
+        // Double-tap/double-click to toggle fullscreen background mode
+        const bgLayers = document.querySelector('.background-layers');
+        if (bgLayers) {
+            let lastTap = 0;
+            bgLayers.addEventListener('click', () => {
+                const now = Date.now();
+                if (now - lastTap < 350) {
+                    this.toggleBackgroundOnlyMode();
+                }
+                lastTap = now;
+            }, { passive: true });
+            bgLayers.addEventListener('dblclick', () => this.toggleBackgroundOnlyMode());
+        }
     }
 
     /**
@@ -271,6 +285,18 @@ export class BackgroundManager {
         if (bgToggle) {
             bgToggle.classList.add('active');
         }
+
+        // Try to enter fullscreen for immersive experience
+        try {
+            // Standard fullscreen for container
+            const container = document.querySelector('.background-layers') || document.documentElement;
+            viewportManager.requestFullscreen(container).catch(() => {
+                // iOS Safari video-specific fullscreen
+                if (this.videoElement && this.videoElement.webkitEnterFullscreen) {
+                    try { this.videoElement.webkitEnterFullscreen(); } catch (_) {}
+                }
+            });
+        } catch (_) {}
     }
 
     /**
@@ -300,6 +326,13 @@ export class BackgroundManager {
         if (bgToggle) {
             bgToggle.classList.remove('active');
         }
+
+        // Exit fullscreen if active
+        try {
+            if (viewportManager.isFullscreen()) {
+                viewportManager.exitFullscreen().catch(() => {});
+            }
+        } catch (_) {}
     }
 
     /**
