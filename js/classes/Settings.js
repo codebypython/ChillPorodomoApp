@@ -14,8 +14,11 @@ export class Settings {
         this.enableNotifications = true;
         this.notificationVolume = 70;
         this.enableBackgroundMusic = false;
-        this.backgroundMusicVolume = 50;
-        this.backgroundMusicType = 'none'; // Default no music
+        this.backgroundMusicVolume = 50; // Master volume for legacy single-track
+        this.backgroundMusicType = 'none'; // Legacy single-track id (kept for compatibility)
+        // New multi-track selection
+        this.selectedMusicIds = []; // array of sound ids (as strings)
+        this.selectedMusicVolumes = {}; // { [id: string]: number(0-100) }
         this.backgroundType = 'none'; // Default no background
         this.backgroundOpacity = 80;
         this.enableAnimations = true;
@@ -50,6 +53,8 @@ export class Settings {
             enableBackgroundMusic: this.enableBackgroundMusic,
             backgroundMusicVolume: this.backgroundMusicVolume,
             backgroundMusicType: this.backgroundMusicType,
+            selectedMusicIds: this.selectedMusicIds,
+            selectedMusicVolumes: this.selectedMusicVolumes,
             backgroundType: this.backgroundType,
             backgroundOpacity: this.backgroundOpacity,
             enableAnimations: this.enableAnimations,
@@ -117,6 +122,7 @@ export class Settings {
         this.setInputValue('notificationVolume', this.notificationVolume);
         this.setInputValue('enableBackgroundMusic', this.enableBackgroundMusic, 'checkbox');
         this.setInputValue('backgroundMusicVolume', this.backgroundMusicVolume);
+        // Multi-select music will be populated by main.js
 
         // Display settings
         this.setInputValue('backgroundType', this.backgroundType);
@@ -147,6 +153,7 @@ export class Settings {
         this.notificationVolume = this.getInputValue('notificationVolume', 'number');
         this.enableBackgroundMusic = this.getInputValue('enableBackgroundMusic', 'checkbox');
         this.backgroundMusicVolume = this.getInputValue('backgroundMusicVolume', 'number');
+        // Multi-select handled in main.js, which updates selectedMusicIds/Volumes before save
 
         // Display settings
         this.backgroundType = this.getInputValue('backgroundType', 'text');

@@ -281,6 +281,19 @@ class ChillPomodoroApp {
             this.backgroundManager.applyBackground();
         });
 
+        // Multi music select change
+        document.getElementById('multiMusicSelect')?.addEventListener('change', (e) => {
+            const options = Array.from(e.target.selectedOptions);
+            this.settings.selectedMusicIds = options.map(o => o.value);
+            this.settings.selectedMusicIds.forEach(id => {
+                if (typeof this.settings.selectedMusicVolumes[id] !== 'number') {
+                    this.settings.selectedMusicVolumes[id] = 80;
+                }
+            });
+            this.renderSelectedMusicVolumes();
+            this.audioManager.syncSelection(this.settings.selectedMusicIds, this.settings.selectedMusicVolumes);
+        });
+
         // Modal controls
         document.querySelector('.modal-close')?.addEventListener('click', () => {
             this.libraryManager.hideModal();
@@ -489,6 +502,10 @@ class ChillPomodoroApp {
         // Populate background type select
         this.populateBackgroundTypeSelect();
 
+        // Populate multi music select and per-track volumes
+        this.populateMultiMusicSelect();
+        this.renderSelectedMusicVolumes();
+
         // Render libraries
         this.libraryManager.renderAnimations();
         this.libraryManager.renderSounds();
@@ -584,7 +601,8 @@ class ChillPomodoroApp {
         this.backgroundManager.applyBackground();
 
         if (this.settings.enableBackgroundMusic) {
-            this.audioManager.startBackgroundMusic();
+            this.audioManager.setMasterVolume(this.settings.backgroundMusicVolume);
+            this.audioManager.syncSelection(this.settings.selectedMusicIds, this.settings.selectedMusicVolumes);
         } else {
             this.audioManager.stopBackgroundMusic();
         }
@@ -599,6 +617,45 @@ class ChillPomodoroApp {
         this.populateBackgroundTypeSelect();
 
         this.showNotification('Cài đặt đã được lưu!', 'success');
+    }
+
+    populateMultiMusicSelect() {
+        const select = document.getElementById('multiMusicSelect');
+        if (!select) return;
+
+        const sounds = this.libraryManager.sounds;
+        select.innerHTML = sounds.map(s => {
+            const selected = (this.settings.selectedMusicIds || []).includes(s.id.toString()) ? 'selected' : '';
+            return `<option value="${s.id}" ${selected}>${s.name}</option>`;
+        }).join('');
+    }
+
+    renderSelectedMusicVolumes() {
+        const container = document.getElementById('selectedMusicVolumes');
+        if (!container) return;
+        const ids = this.settings.selectedMusicIds || [];
+        if (ids.length === 0) {
+            container.innerHTML = '<div class="text-muted">Chưa chọn nhạc nền nào.</div>';
+            return;
+        }
+        container.innerHTML = ids.map(id => {
+            const sound = this.libraryManager.sounds.find(s => s.id.toString() === id);
+            const name = sound ? sound.name : `Sound ${id}`;
+            const vol = typeof this.settings.selectedMusicVolumes[id] === 'number' ? this.settings.selectedMusicVolumes[id] : 80;
+            return `
+                <div class="setting-item">
+                    <label>${name}: <span id="selVol-${id}">${vol}%</span></label>
+                    <input type="range" min="0" max="100" value="${vol}" oninput="window.app.onSelectedMusicVolumeChange('${id}', this.value)">
+                </div>
+            `;
+        }).join('');
+    }
+
+    onSelectedMusicVolumeChange(id, value) {
+        this.settings.selectedMusicVolumes[id] = parseInt(value);
+        const label = document.getElementById(`selVol-${id}`);
+        if (label) label.textContent = `${value}%`;
+        this.audioManager.syncSelection(this.settings.selectedMusicIds, this.settings.selectedMusicVolumes);
     }
 
     // ===== Sounds Mix UI =====

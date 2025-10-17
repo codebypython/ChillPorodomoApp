@@ -337,8 +337,13 @@
                             </label>
                         </div>
                         <div class="setting-item">
-                            <label>Âm lượng nhạc nền: <span id="musicVolumeDisplay">50%</span></label>
+                            <label>Âm lượng nhạc nền (Master): <span id="musicVolumeDisplay">50%</span></label>
                             <input type="range" id="backgroundMusicVolume" min="0" max="100" value="50">
+                        </div>
+                        <div class="setting-item">
+                            <label>Chọn nhiều nhạc nền</label>
+                            <select id="multiMusicSelect" multiple size="6" style="width:100%; padding:0.5rem;"></select>
+                            <div id="selectedMusicVolumes" class="mt-2"></div>
                         </div>
                     </div>
 

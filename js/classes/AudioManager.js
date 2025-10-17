@@ -282,6 +282,32 @@ export class AudioManager {
         return Array.from(this.tracks.entries()).map(([id, t]) => ({ id, volume: t.volume }));
     }
 
+    async syncSelection(selectedIds = [], perTrackVolumes = {}) {
+        await this.ensureInitialized();
+        // Remove tracks not in selectedIds
+        const selectedSet = new Set((selectedIds || []).map(x => x.toString()));
+        Array.from(this.tracks.keys()).forEach(id => {
+            // Only manage tracks created for settings selection (prefix 'sound-')
+            if (id.startsWith('sound-') && !selectedSet.has(id.split('-')[1])) {
+                this.removeTrack(id);
+            }
+        });
+
+        // Add new tracks
+        for (const sid of selectedSet) {
+            const trackIdPrefix = `sound-${sid}`;
+            const existing = Array.from(this.tracks.keys()).some(id => id.startsWith(trackIdPrefix));
+            const vol = typeof perTrackVolumes[sid] === 'number' ? perTrackVolumes[sid] : 80;
+            if (!existing) {
+                await this.addTrackFromSoundId(sid, vol);
+            } else {
+                // Update volume
+                const foundId = Array.from(this.tracks.keys()).find(id => id.startsWith(trackIdPrefix));
+                if (foundId) this.setTrackVolume(foundId, vol);
+            }
+        }
+    }
+
     /**
      * Start background music
      */
