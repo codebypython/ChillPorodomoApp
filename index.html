@@ -256,6 +256,17 @@
                         </button>
                     </div>
 
+                    <div class="settings-section" style="margin-bottom: 2rem;">
+                        <h3>🎚️ Active Mix</h3>
+                        <div class="setting-item">
+                            <label>Master volume: <span id="masterMixVolumeDisplay">80%</span></label>
+                            <input type="range" id="masterMixVolume" min="0" max="100" value="80">
+                        </div>
+                        <div id="soundsMix" class="library-grid">
+                            <!-- Active tracks will appear here -->
+                        </div>
+                    </div>
+
                     <div id="soundsList" class="library-grid">
                         <!-- Will be populated by JS -->
                     </div>

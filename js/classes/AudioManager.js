@@ -13,6 +13,9 @@ export class AudioManager {
         this.currentMusicId = null;
         this.customSounds = new Map(); // Map of id -> Audio object
         this.notificationSounds = {};
+        // Multi-track mixing
+        this.masterGain = null;
+        this.tracks = new Map(); // id -> { element, sourceNode, gainNode, volume, isBlob, url }
         this.initPromise = this.initialize();
     }
 
@@ -22,6 +25,9 @@ export class AudioManager {
     async initialize() {
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.masterGain = this.audioContext.createGain();
+            this.masterGain.gain.value = 0.8; // default master
+            this.masterGain.connect(this.audioContext.destination);
             this.createNotificationSounds();
             await this.loadCustomSounds();
             return true;
@@ -187,6 +193,93 @@ export class AudioManager {
     async reloadCustomSounds() {
         this.customSounds.clear();
         await this.loadCustomSounds();
+    }
+
+    // ===== Multi-track Mixing =====
+    async addTrackFromSoundId(soundId, initialVolume = 80) {
+        const sound = this.customSounds.get(parseInt(soundId));
+        if (!sound) throw new Error('Sound not found');
+        return this.addTrackFromData({ id: `sound-${sound.id}-${Date.now()}`, data: sound.data, initialVolume });
+    }
+
+    async addTrackFromData({ id, data, initialVolume = 80 }) {
+        await this.ensureInitialized();
+
+        // Resolve URL
+        let url;
+        let isBlob = false;
+        if (data instanceof Blob) {
+            url = storageManager.createBlobURL(data);
+            isBlob = true;
+        } else if (typeof data === 'string') {
+            url = data;
+        } else {
+            throw new Error('Invalid sound data');
+        }
+
+        // Create media element + source node
+        const element = new Audio(url);
+        element.loop = true;
+        element.crossOrigin = 'anonymous';
+
+        let sourceNode;
+        try {
+            sourceNode = this.audioContext.createMediaElementSource(element);
+        } catch (e) {
+            // CORS or element reuse error fallback: play element unmanaged
+            await element.play().catch(() => {});
+            this.tracks.set(id, { element, sourceNode: null, gainNode: null, volume: initialVolume, isBlob, url });
+            element.volume = initialVolume / 100;
+            return id;
+        }
+
+        const gainNode = this.audioContext.createGain();
+        gainNode.gain.value = initialVolume / 100;
+        sourceNode.connect(gainNode);
+        gainNode.connect(this.masterGain);
+
+        await element.play().catch(() => {});
+
+        this.tracks.set(id, { element, sourceNode, gainNode, volume: initialVolume, isBlob, url });
+        return id;
+    }
+
+    removeTrack(id) {
+        const track = this.tracks.get(id);
+        if (!track) return;
+        try {
+            track.element.pause();
+            track.element.currentTime = 0;
+        } catch {}
+        try {
+            if (track.sourceNode) track.sourceNode.disconnect();
+            if (track.gainNode) track.gainNode.disconnect();
+        } catch {}
+        if (track.isBlob && track.url?.startsWith('blob:')) {
+            URL.revokeObjectURL(track.url);
+        }
+        this.tracks.delete(id);
+    }
+
+    setTrackVolume(id, volume) {
+        const track = this.tracks.get(id);
+        if (!track) return;
+        track.volume = volume;
+        if (track.gainNode) {
+            track.gainNode.gain.value = volume / 100;
+        } else if (track.element) {
+            track.element.volume = volume / 100;
+        }
+    }
+
+    setMasterVolume(volume) {
+        if (this.masterGain) {
+            this.masterGain.gain.value = Math.max(0, Math.min(1, volume / 100));
+        }
+    }
+
+    listTracks() {
+        return Array.from(this.tracks.entries()).map(([id, t]) => ({ id, volume: t.volume }));
     }
 
     /**

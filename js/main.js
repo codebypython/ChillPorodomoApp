@@ -219,6 +219,18 @@ class ChillPomodoroApp {
         // Visibility change (tab switching)
         document.addEventListener('visibilitychange', () => {
             this.timer.handleVisibilityChange();
+
+            // Attempt to resume background video and active audio tracks when returning
+            if (!document.hidden) {
+                const video = document.getElementById('backgroundVideo');
+                try { if (video && video.classList.contains('active') && video.paused) video.play().catch(() => {}); } catch {}
+
+                // Resume tracks that might have been auto-paused
+                const tracks = this.audioManager?.tracks ? Array.from(this.audioManager.tracks.values()) : [];
+                tracks.forEach(t => {
+                    try { if (t.element && t.element.paused) t.element.play().catch(() => {}); } catch {}
+                });
+            }
         });
 
         // Library actions
@@ -228,6 +240,13 @@ class ChillPomodoroApp {
 
         document.getElementById('addSoundBtn')?.addEventListener('click', () => {
             this.libraryManager.showAddSoundModal();
+        });
+
+        // Sounds mixing controls
+        document.getElementById('masterMixVolume')?.addEventListener('input', (e) => {
+            const vol = parseInt(e.target.value);
+            document.getElementById('masterMixVolumeDisplay').textContent = vol + '%';
+            this.audioManager.setMasterVolume(vol);
         });
 
         document.getElementById('savePresetBtn')?.addEventListener('click', () => {
@@ -477,6 +496,9 @@ class ChillPomodoroApp {
 
         // Switch to default tab
         this.switchTab('timer');
+
+        // Expose helpers for inline handlers
+        window.app = window.app || this;
     }
 
     /**
@@ -533,6 +555,7 @@ class ChillPomodoroApp {
         } else if (tabName === 'sounds') {
             this.libraryManager.renderSounds();
             this.populateDropdowns(); // Refresh dropdowns
+            this.renderActiveMix();
         } else if (tabName === 'presets') {
             this.presetManager.renderPresets();
         }
@@ -576,6 +599,42 @@ class ChillPomodoroApp {
         this.populateBackgroundTypeSelect();
 
         this.showNotification('Cài đặt đã được lưu!', 'success');
+    }
+
+    // ===== Sounds Mix UI =====
+    renderActiveMix() {
+        const container = document.getElementById('soundsMix');
+        if (!container) return;
+        const tracks = this.audioManager.listTracks();
+        if (tracks.length === 0) {
+            container.innerHTML = '<div class="empty-state"><p>Chưa có track nào đang phát. Hãy thêm hoặc dùng sound để phát.</p></div>';
+            return;
+        }
+        container.innerHTML = tracks.map(t => `
+            <div class="library-item" data-id="${t.id}">
+                <div class="library-item-info">
+                    <div class="library-item-name">Track: ${t.id}</div>
+                    <div class="library-item-meta">Volume: <span id="vol-${t.id}">${t.volume}%</span></div>
+                </div>
+                <div class="setting-item" style="margin-bottom:0;">
+                    <input type="range" min="0" max="100" value="${t.volume}" oninput="window.app.setTrackVolumeUI('${t.id}', this.value)">
+                </div>
+                <div class="library-item-actions" style="margin-top:0.75rem;">
+                    <button class="item-btn delete" onclick="window.app.removeTrackUI('${t.id}')">Remove</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    setTrackVolumeUI(id, value) {
+        this.audioManager.setTrackVolume(id, parseInt(value));
+        const label = document.getElementById(`vol-${id}`);
+        if (label) label.textContent = `${value}%`;
+    }
+
+    removeTrackUI(id) {
+        this.audioManager.removeTrack(id);
+        this.renderActiveMix();
     }
 
     /**

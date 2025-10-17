@@ -58,6 +58,14 @@ export class BackgroundManager {
             }
         });
 
+        // Ensure continuous replay even if loop is interrupted
+        this.videoElement.addEventListener('ended', () => {
+            try {
+                this.videoElement.currentTime = 0;
+                this.videoElement.play().catch(() => {});
+            } catch {}
+        });
+
         // Double-tap/double-click to toggle fullscreen background mode
         const bgLayers = document.querySelector('.background-layers');
         if (bgLayers) {

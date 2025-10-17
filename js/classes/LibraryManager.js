@@ -208,10 +208,8 @@ export class LibraryManager {
         }
 
         if (this.audioManager) {
-            this.audioManager.settings.backgroundMusicType = id.toString();
-            this.audioManager.settings.enableBackgroundMusic = true;
-            this.audioManager.settings.save();
-            await this.audioManager.startBackgroundMusic(id);
+            // Add as a new track to the mix instead of replacing master bg music
+            await this.audioManager.addTrackFromSoundId(id, 80);
         }
     }
 
