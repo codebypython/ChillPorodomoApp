@@ -372,8 +372,8 @@ export class LibraryManager {
                 <input type="text" id="soundName" placeholder="Ví dụ: Lofi Chill Beats">
             </div>
             <div class="setting-item">
-                <label>File (MP3, WAV, OGG)</label>
-                <input type="file" id="soundFile" accept="audio/*">
+                <label>File (MP3, M4A, WAV, OGG)</label>
+                <input type="file" id="soundFile" accept="audio/mpeg,audio/mp3,audio/mp4,audio/aac,audio/x-m4a,.mp3,.m4a,.aac,.wav,.ogg">
             </div>
         `;
 
