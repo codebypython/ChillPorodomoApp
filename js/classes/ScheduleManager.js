@@ -78,19 +78,33 @@ export class ScheduleManager {
      * Process courses - parse schedule strings and week ranges
      */
     processCourses(courses) {
-        return courses.map((course, index) => {
+        console.log(`Processing ${courses.length} courses...`);
+        
+        const processed = courses.map((course, index) => {
             const scheduleInfo = this.parseScheduleString(course.schedule);
             const weekRanges = this.parseWeekRanges(course.weeks);
             const color = this.colorPalette[index % this.colorPalette.length];
 
-            return {
+            const processedCourse = {
                 ...course,
                 scheduleInfo,
                 weekRanges,
                 color,
                 id: `course-${Date.now()}-${index}`
             };
+
+            // Log processing result
+            if (scheduleInfo.day) {
+                console.log(`Course "${course.name}": Day ${scheduleInfo.day}, Periods [${scheduleInfo.periods.join(',')}], Room ${scheduleInfo.room}`);
+            } else {
+                console.warn(`Course "${course.name}": Failed to parse schedule from "${course.schedule}"`);
+            }
+
+            return processedCourse;
         });
+
+        console.log(`Processed ${processed.length} courses`);
+        return processed;
     }
 
     /**
@@ -109,26 +123,56 @@ export class ScheduleManager {
             room: ''
         };
 
-        // Extract day (Thứ 2, Thứ 3, etc.)
-        const dayMatch = scheduleStr.match(/Thứ\s*(\d+)/i);
-        if (dayMatch) {
-            result.day = parseInt(dayMatch[1]);
-        }
+        const str = scheduleStr.trim();
 
-        // Extract periods (1-2, 3-4, 8-10, etc.)
-        const periodMatch = scheduleStr.match(/(\d+)\s*[-–]\s*(\d+)/);
-        if (periodMatch) {
-            const start = parseInt(periodMatch[1]);
-            const end = parseInt(periodMatch[2]);
-            for (let i = start; i <= end; i++) {
-                result.periods.push(i);
+        // Step 1: Extract day (Thứ 2, Thứ 3, etc.) - phải match chính xác "Thứ" + số
+        const dayMatch = str.match(/Thứ\s*(\d+)/i);
+        if (dayMatch) {
+            const dayNum = parseInt(dayMatch[1]);
+            // Validate day (2-7: Monday to Saturday)
+            if (dayNum >= 2 && dayNum <= 7) {
+                result.day = dayNum;
+            } else {
+                console.warn(`Invalid day number: ${dayNum} in schedule string: ${str}`);
             }
         }
 
-        // Extract room (usually at the end, format: E2.403, A141, C303, etc.)
-        const roomMatch = scheduleStr.match(/([A-Z]\d+\.?\d*|[A-Z]\d+)/);
+        // Step 2: Extract periods - tìm pattern số-số sau dấu phẩy đầu tiên
+        // Tránh match nhầm với số ngày bằng cách tìm sau "Thứ X," hoặc dấu phẩy
+        let periodStr = str;
+        const commaIndex = str.indexOf(',');
+        if (commaIndex !== -1) {
+            // Lấy phần sau dấu phẩy đầu tiên
+            periodStr = str.substring(commaIndex + 1);
+        }
+
+        // Tìm pattern số-số (tiết học, không phải số ngày)
+        const periodMatch = periodStr.match(/(\d+)\s*[-–]\s*(\d+)/);
+        if (periodMatch) {
+            const start = parseInt(periodMatch[1]);
+            const end = parseInt(periodMatch[2]);
+            // Validate periods (1-10)
+            if (start >= 1 && start <= 10 && end >= 1 && end <= 10 && start <= end) {
+                for (let i = start; i <= end; i++) {
+                    result.periods.push(i);
+                }
+            } else {
+                console.warn(`Invalid period range: ${start}-${end} in schedule string: ${str}`);
+            }
+        }
+
+        // Step 3: Extract room - tìm pattern chữ-số hoặc chữ-số.số ở cuối chuỗi
+        // Pattern: [A-Z] + số + (có thể có .số)
+        const roomMatch = str.match(/([A-Z]\d+\.?\d*|[A-Z]\d+)(?:\s|$)/);
         if (roomMatch) {
-            result.room = roomMatch[1];
+            result.room = roomMatch[1].trim();
+        }
+
+        // Debug log
+        if (result.day || result.periods.length > 0) {
+            console.log(`Parsed schedule: "${str}" ->`, result);
+        } else {
+            console.warn(`Failed to parse schedule string: "${str}"`);
         }
 
         return result;
@@ -166,29 +210,105 @@ export class ScheduleManager {
     /**
      * Generate weekly schedule from courses
      * Returns a 2D array: [period][day] = array of courses
+     * Structure: 10 periods (1-10) x 6 days (Thứ 2-7, index 0-5)
      */
     generateWeeklySchedule(courses) {
-        // Initialize schedule: 10 periods (1-10) x 7 days (Mon-Sun, but we use 2-7)
-        const schedule = Array(10).fill(null).map(() => Array(7).fill(null).map(() => []));
+        // Initialize schedule: 10 periods (1-10) x 6 days (Thứ 2-7, index 0-5)
+        // schedule[periodIndex][dayIndex] = array of courses
+        // Use explicit loop to avoid reference issues
+        const schedule = [];
+        for (let p = 0; p < 10; p++) {
+            const period = [];
+            for (let d = 0; d < 6; d++) {
+                period.push([]);
+            }
+            schedule.push(period);
+        }
+        
+        console.log('Initialized schedule array:', {
+            periods: schedule.length,
+            daysPerPeriod: schedule[0]?.length,
+            structure: 'schedule[period][day] = []'
+        });
+
+        let processedCount = 0;
+        let skippedCount = 0;
 
         for (const course of courses) {
-            if (!course.scheduleInfo || !course.scheduleInfo.day) continue;
+            if (!course.scheduleInfo) {
+                console.warn(`Course "${course.name}" missing scheduleInfo`);
+                skippedCount++;
+                continue;
+            }
 
             const day = course.scheduleInfo.day; // 2-7 (Monday-Saturday)
             const periods = course.scheduleInfo.periods;
 
-            // Adjust day index (day 2 = index 0, day 3 = index 1, etc.)
-            const dayIndex = day - 2;
-            if (dayIndex < 0 || dayIndex >= 7) continue;
+            // Validate day
+            if (!day || day < 2 || day > 7) {
+                console.warn(`Course "${course.name}" has invalid day: ${day}`);
+                skippedCount++;
+                continue;
+            }
 
+            // Validate periods
+            if (!periods || periods.length === 0) {
+                console.warn(`Course "${course.name}" has no periods`);
+                skippedCount++;
+                continue;
+            }
+
+            // Adjust day index (day 2 = index 0, day 3 = index 1, ..., day 7 = index 5)
+            const dayIndex = day - 2;
+            if (dayIndex < 0 || dayIndex >= 6) {
+                console.warn(`Course "${course.name}" has invalid dayIndex: ${dayIndex} (day: ${day})`);
+                skippedCount++;
+                continue;
+            }
+
+            // Add course to each period
             for (const period of periods) {
                 // Periods are 1-10, array index is 0-9
                 const periodIndex = period - 1;
                 if (periodIndex >= 0 && periodIndex < 10) {
+                    // Debug: Log before adding
+                    console.log(`Adding course "${course.name}" to Period ${period} (index ${periodIndex}), Day ${day} (index ${dayIndex})`);
                     schedule[periodIndex][dayIndex].push(course);
+                    processedCount++;
+                    
+                    // Debug: Verify after adding
+                    const verifyCount = schedule[periodIndex][dayIndex].length;
+                    console.log(`  -> Verified: Period ${periodIndex}, Day ${dayIndex} now has ${verifyCount} course(s)`);
+                } else {
+                    console.warn(`Course "${course.name}" has invalid period: ${period}`);
                 }
             }
         }
+
+        // Debug log - Detailed structure
+        console.log(`Schedule generation complete:`);
+        console.log(`- Processed: ${processedCount} course-period entries`);
+        console.log(`- Skipped: ${skippedCount} courses`);
+        console.log(`- Schedule structure:`);
+        
+        // Detailed log for each period
+        schedule.forEach((period, periodIdx) => {
+            const periodNum = periodIdx + 1;
+            const dayCounts = period.map((day, dayIdx) => {
+                const count = day.length;
+                if (count > 0) {
+                    return `Thứ ${dayIdx + 2}: ${count} course(s)`;
+                }
+                return null;
+            }).filter(x => x !== null);
+            
+            if (dayCounts.length > 0) {
+                console.log(`  Period ${periodNum}: ${dayCounts.join(', ')}`);
+            }
+        });
+        
+        // Log full structure for debugging
+        console.log('Full schedule array:', schedule);
 
         return schedule;
     }
@@ -199,6 +319,36 @@ export class ScheduleManager {
     async getSchedule(id) {
         try {
             const schedule = await this.storageManager.getItem('schedules', id);
+            
+            // Debug: Check schedule structure after loading from IndexedDB
+            if (schedule && schedule.weeklySchedule) {
+                console.log('Loaded schedule from IndexedDB:', {
+                    name: schedule.name,
+                    weeklyScheduleType: Array.isArray(schedule.weeklySchedule) ? 'Array' : typeof schedule.weeklySchedule,
+                    weeklyScheduleLength: schedule.weeklySchedule.length,
+                    firstPeriodType: Array.isArray(schedule.weeklySchedule[0]) ? 'Array' : typeof schedule.weeklySchedule[0],
+                    firstPeriodLength: schedule.weeklySchedule[0]?.length,
+                    sampleData: schedule.weeklySchedule[0]?.[0] ? 
+                        `Period 1, Day 1 has ${schedule.weeklySchedule[0][0].length} course(s)` : 
+                        'Period 1, Day 1 is empty'
+                });
+                
+                // Verify structure
+                if (!Array.isArray(schedule.weeklySchedule)) {
+                    console.error('ERROR: weeklySchedule is not an array!', schedule.weeklySchedule);
+                } else if (schedule.weeklySchedule.length !== 10) {
+                    console.error(`ERROR: weeklySchedule has ${schedule.weeklySchedule.length} periods, expected 10!`);
+                } else {
+                    schedule.weeklySchedule.forEach((period, pIdx) => {
+                        if (!Array.isArray(period)) {
+                            console.error(`ERROR: Period ${pIdx + 1} is not an array!`, period);
+                        } else if (period.length !== 6) {
+                            console.error(`ERROR: Period ${pIdx + 1} has ${period.length} days, expected 6!`);
+                        }
+                    });
+                }
+            }
+            
             this.currentSchedule = schedule;
             return schedule;
         } catch (error) {
