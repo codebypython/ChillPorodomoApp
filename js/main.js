@@ -11,6 +11,8 @@ import { BackgroundManager } from './classes/BackgroundManager.js';
 import { PomodoroTimer } from './classes/PomodoroTimer.js';
 import { LibraryManager } from './classes/LibraryManager.js';
 import { PresetManager } from './classes/PresetManager.js';
+import { ScheduleManager } from './classes/ScheduleManager.js';
+import { ScheduleRenderer } from './utils/scheduleRenderer.js';
 
 class ChillPomodoroApp {
     constructor() {
@@ -20,6 +22,8 @@ class ChillPomodoroApp {
         this.timer = null;
         this.libraryManager = null;
         this.presetManager = null;
+        this.scheduleManager = null;
+        this.scheduleRenderer = null;
         this.currentTab = 'timer';
     }
 
@@ -49,9 +53,14 @@ class ChillPomodoroApp {
             this.presetManager = new PresetManager(this.settings, this.backgroundManager, this.audioManager);
             await this.presetManager.loadPresets();
 
+            this.scheduleManager = new ScheduleManager();
+            await this.scheduleManager.loadSchedules();
+            this.scheduleRenderer = new ScheduleRenderer(this.scheduleManager);
+
             // Make managers globally accessible for onclick handlers
             window.libraryManager = this.libraryManager;
             window.presetManager = this.presetManager;
+            window.scheduleManager = this.scheduleManager;
 
             // Seed default data on first run
             await this.seedDefaultData();
@@ -304,8 +313,106 @@ class ChillPomodoroApp {
             }
         });
 
+        // Schedule actions
+        this.setupScheduleListeners();
+
         // Header dropdowns
         this.setupHeaderDropdowns();
+    }
+
+    /**
+     * Setup schedule event listeners
+     */
+    setupScheduleListeners() {
+        // Upload schedule button
+        document.getElementById('uploadScheduleBtn')?.addEventListener('click', () => {
+            this.scheduleRenderer.showUploadModal(async (file, scheduleName) => {
+                await this.handleScheduleUpload(file, scheduleName);
+            });
+        });
+
+        // Close schedule upload modal
+        document.getElementById('closeScheduleUploadModal')?.addEventListener('click', () => {
+            this.scheduleRenderer.hideUploadModal();
+        });
+
+        // Schedule type buttons
+        document.querySelectorAll('.schedule-type-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                if (btn.disabled) return;
+                
+                // Update active state
+                document.querySelectorAll('.schedule-type-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+    }
+
+    /**
+     * Handle schedule file upload
+     */
+    async handleScheduleUpload(file, scheduleName) {
+        const scheduleList = document.getElementById('scheduleList');
+        const scheduleTableContainer = document.getElementById('scheduleTableContainer');
+        
+        try {
+            // Show loading
+            this.scheduleRenderer.showLoading(scheduleList, 'Đang xử lý file Excel...');
+
+            // Create schedule
+            const schedule = await this.scheduleManager.createClassScheduleFromXLSX(file, scheduleName);
+
+            // Show success
+            this.showNotification('Tạo lịch học thành công!', 'success');
+
+            // Render schedule list
+            await this.renderSchedules();
+
+            // Auto show the schedule
+            this.scheduleManager.currentSchedule = schedule;
+            this.scheduleRenderer.renderWeeklySchedule(scheduleTableContainer, schedule);
+        } catch (error) {
+            console.error('Error uploading schedule:', error);
+            this.scheduleRenderer.showError(scheduleList, error.message || 'Có lỗi xảy ra khi tạo lịch học.');
+            this.showNotification('Lỗi: ' + (error.message || 'Không thể tạo lịch học'), 'danger');
+        }
+    }
+
+    /**
+     * Render schedules list
+     */
+    async renderSchedules() {
+        const scheduleList = document.getElementById('scheduleList');
+        if (!scheduleList) return;
+
+        await this.scheduleManager.loadSchedules();
+        const schedules = this.scheduleManager.schedules.filter(s => s.type === 'class');
+
+        this.scheduleRenderer.renderScheduleList(
+            scheduleList,
+            schedules,
+            async (id) => {
+                // View schedule
+                const schedule = await this.scheduleManager.getSchedule(id);
+                if (schedule) {
+                    const container = document.getElementById('scheduleTableContainer');
+                    this.scheduleRenderer.renderWeeklySchedule(container, schedule);
+                }
+            },
+            async (id) => {
+                // Delete schedule
+                await this.scheduleManager.deleteSchedule(id);
+                await this.renderSchedules();
+                this.showNotification('Đã xóa lịch học', 'success');
+                
+                // Hide table if deleted schedule was being viewed
+                const container = document.getElementById('scheduleTableContainer');
+                if (container && this.scheduleManager.currentSchedule?.id === id) {
+                    container.style.display = 'none';
+                    this.scheduleManager.currentSchedule = null;
+                }
+            }
+        );
     }
 
     /**
@@ -488,6 +595,9 @@ class ChillPomodoroApp {
         // Render per-track sliders
         this.renderPerTrackSliders();
 
+        // Render schedules
+        this.renderSchedules();
+
         // Switch to default tab
         this.switchTab('timer');
     }
@@ -585,6 +695,8 @@ class ChillPomodoroApp {
             this.populateDropdowns(); // Refresh dropdowns
         } else if (tabName === 'presets') {
             this.presetManager.renderPresets();
+        } else if (tabName === 'schedules') {
+            this.renderSchedules();
         }
     }
 

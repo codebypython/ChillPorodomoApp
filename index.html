@@ -158,6 +158,10 @@
                 <span class="tab-icon">💾</span>
                 <span class="tab-label">Presets</span>
             </button>
+            <button class="nav-tab" data-tab="schedules">
+                <span class="tab-icon">📅</span>
+                <span class="tab-label">Schedules</span>
+            </button>
             <button class="nav-tab" data-tab="settings">
                 <span class="tab-icon">⚙️</span>
                 <span class="tab-label">Settings</span>
@@ -278,6 +282,45 @@
 
                     <div id="presetsList" class="library-grid">
                         <!-- Will be populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Schedules Tab -->
+            <div id="schedules-tab" class="tab-content">
+                <div class="schedule-container">
+                    <div class="schedule-header">
+                        <h2>Quản Lý Lịch Trình</h2>
+                        <p class="schedule-description">Tạo và quản lý lịch học, lịch sinh hoạt, lịch tập luyện</p>
+                    </div>
+
+                    <div class="schedule-types">
+                        <button class="schedule-type-btn active" data-type="class">
+                            📚 Lịch Học Trên Trường
+                        </button>
+                        <button class="schedule-type-btn" data-type="life" disabled title="Sắp có">
+                            🏠 Lịch Sinh Hoạt
+                        </button>
+                        <button class="schedule-type-btn" data-type="exercise" disabled title="Sắp có">
+                            💪 Lịch Tập Luyện
+                        </button>
+                    </div>
+
+                    <div class="schedule-actions">
+                        <button id="uploadScheduleBtn" class="btn-action primary">
+                            📤 Nạp Dữ Liệu Lịch
+                        </button>
+                        <button id="createScheduleBtn" class="btn-action primary" style="display: none;">
+                            ✅ Tạo Lịch
+                        </button>
+                    </div>
+
+                    <div id="scheduleList" class="schedule-list">
+                        <!-- Danh sách lịch đã tạo -->
+                    </div>
+
+                    <div id="scheduleTableContainer" class="schedule-table-container" style="display: none;">
+                        <!-- Bảng lịch tuần -->
                     </div>
                 </div>
             </div>
@@ -448,6 +491,38 @@
         </div>
     </div>
 
+    <!-- Schedule Upload Modal -->
+    <div id="scheduleUploadModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Nạp Dữ Liệu Lịch Học</h3>
+                <button class="modal-close" id="closeScheduleUploadModal">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="upload-form">
+                    <div class="form-group">
+                        <label for="scheduleFileInput">Chọn file Excel (.xlsx)</label>
+                        <input type="file" id="scheduleFileInput" accept=".xlsx,.xls" />
+                        <div id="scheduleFileName" class="file-name-display">Chưa chọn file</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="scheduleNameInput">Tên lịch</label>
+                        <input type="text" id="scheduleNameInput" placeholder="Nhập tên lịch (ví dụ: Lịch học HK1 2024)" />
+                    </div>
+                    <div class="form-hint">
+                        <p>📋 <strong>Hướng dẫn:</strong></p>
+                        <p>File Excel cần có các cột: TT, Mã lớp học phần, Tên lớp học phần, Số TC, Giảng viên, Thời khóa biểu, Tuần học</p>
+                        <p>Định dạng thời khóa biểu: "Thứ 4,1-2,E2.403" (Thứ, Tiết, Phòng)</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelUploadBtn" class="btn-action secondary">Hủy</button>
+                <button id="confirmUploadBtn" class="btn-action primary">Nạp File</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Notification -->
     <div id="notification" class="notification">
         <span id="notificationText"></span>
@@ -455,6 +530,8 @@
     </div>
 
     <!-- Scripts -->
+    <!-- Load XLSX library from CDN -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <script type="module" src="js/main.js"></script>
 </body>
 </html>

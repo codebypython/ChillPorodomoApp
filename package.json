@@ -1,0 +1,13 @@
+{
+  "name": "chillpomodoroapp",
+  "version": "1.0.0",
+  "description": "ChillPomodoro - Focus & Relax App",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}
+

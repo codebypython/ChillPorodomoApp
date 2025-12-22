@@ -6,7 +6,7 @@
 export class StorageManager {
     constructor() {
         this.dbName = 'ChillPomodoroApp';
-        this.dbVersion = 1;
+        this.dbVersion = 2;
         this.db = null;
         this.initPromise = this.initDB();
     }
@@ -47,6 +47,13 @@ export class StorageManager {
                 if (!db.objectStoreNames.contains('presets')) {
                     const presetStore = db.createObjectStore('presets', { keyPath: 'id', autoIncrement: true });
                     presetStore.createIndex('name', 'name', { unique: false });
+                }
+
+                if (!db.objectStoreNames.contains('schedules')) {
+                    const scheduleStore = db.createObjectStore('schedules', { keyPath: 'id', autoIncrement: true });
+                    scheduleStore.createIndex('name', 'name', { unique: false });
+                    scheduleStore.createIndex('type', 'type', { unique: false });
+                    scheduleStore.createIndex('createdAt', 'createdAt', { unique: false });
                 }
 
                 console.log('IndexedDB object stores created');
@@ -192,7 +199,7 @@ export class StorageManager {
 
         // Clear IndexedDB
         await this.ensureDB();
-        const stores = ['animations', 'sounds', 'presets'];
+        const stores = ['animations', 'sounds', 'presets', 'schedules'];
 
         for (const storeName of stores) {
             await this.clearStore(storeName);
@@ -363,6 +370,7 @@ export class StorageManager {
         const animations = await this.getAllItems('animations');
         const sounds = await this.getAllItems('sounds');
         const presets = await this.getAllItems('presets');
+        const schedules = await this.getAllItems('schedules');
         const settings = this.getSettings();
         const state = this.getTimerState();
 
@@ -393,6 +401,7 @@ export class StorageManager {
             animations: exportAnimations,
             sounds: exportSounds,
             presets,
+            schedules,
             settings,
             state,
             exportDate: new Date().toISOString(),
