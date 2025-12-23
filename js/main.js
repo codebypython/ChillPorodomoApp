@@ -377,8 +377,13 @@ class ChillPomodoroApp {
                 throw new Error('Lịch học không có dữ liệu môn học.');
             }
 
-            // Verify courses have valid scheduleInfo
-            const validCourses = schedule.courses.filter(c => c.scheduleInfo && c.scheduleInfo.day);
+            // Verify courses have valid scheduleInfo (now an array)
+            const validCourses = schedule.courses.filter(c => 
+                c.scheduleInfo && 
+                Array.isArray(c.scheduleInfo) && 
+                c.scheduleInfo.length > 0 &&
+                c.scheduleInfo.some(entry => entry.day && entry.periods && entry.periods.length > 0)
+            );
             if (validCourses.length === 0) {
                 console.error('ERROR: No courses with valid scheduleInfo!');
                 throw new Error('Không có môn học nào có thông tin lịch học hợp lệ.');

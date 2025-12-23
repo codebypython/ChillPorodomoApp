@@ -135,8 +135,6 @@ export class ScheduleRenderer {
         courses.forEach((course, idx) => {
             console.log(`Course ${idx + 1}: "${course.name}"`);
             console.log(`  - scheduleInfo:`, course.scheduleInfo);
-            console.log(`  - day:`, course.scheduleInfo?.day);
-            console.log(`  - periods:`, course.scheduleInfo?.periods);
             
             if (!course.scheduleInfo) {
                 console.warn(`  ❌ Skipped: No scheduleInfo`);
@@ -144,34 +142,75 @@ export class ScheduleRenderer {
                 return;
             }
             
-            if (!course.scheduleInfo.day) {
-                console.warn(`  ❌ Skipped: No day in scheduleInfo`);
+            // CRITICAL: scheduleInfo is now an array
+            if (!Array.isArray(course.scheduleInfo)) {
+                console.warn(`  ❌ Skipped: scheduleInfo is not an array!`, course.scheduleInfo);
                 skippedCount++;
                 return;
             }
             
-            const day = course.scheduleInfo.day; // 2-7
-            const periods = course.scheduleInfo.periods || [];
-            
-            if (periods.length === 0) {
-                console.warn(`  ❌ Skipped: No periods`);
+            if (course.scheduleInfo.length === 0) {
+                console.warn(`  ❌ Skipped: scheduleInfo array is empty`);
                 skippedCount++;
                 return;
             }
             
-            console.log(`  ✓ Processing: Day ${day}, Periods [${periods.join(',')}]`);
-            
-            periods.forEach(period => {
-                if (period >= 1 && period <= 10 && day >= 2 && day <= 7) {
-                    if (!scheduleMap[period][day]) {
-                        scheduleMap[period][day] = [];
-                    }
-                    scheduleMap[period][day].push(course);
-                    mappedCount++;
-                    console.log(`  ✓ Mapped: Period ${period}, Day ${day}`);
-                } else {
-                    console.warn(`  ❌ Invalid: Period ${period}, Day ${day}`);
+            // CRITICAL: Iterate through all schedule entries
+            course.scheduleInfo.forEach((scheduleEntry, entryIdx) => {
+                const day = Number(scheduleEntry.day); // Convert to number
+                const periods = Array.isArray(scheduleEntry.periods) ? scheduleEntry.periods : [];
+                
+                if (!day || isNaN(day) || day < 2 || day > 7) {
+                    console.warn(`  ❌ Skipped entry ${entryIdx + 1}: Invalid day ${scheduleEntry.day}`);
+                    return;
                 }
+                
+                if (periods.length === 0) {
+                    console.warn(`  ❌ Skipped entry ${entryIdx + 1}: No periods`);
+                    return;
+                }
+                
+                console.log(`  ✓ Processing entry ${entryIdx + 1}: Day ${day}, Periods [${periods.join(',')}], Room ${scheduleEntry.room}`);
+                
+                periods.forEach(period => {
+                    const periodNum = Number(period);
+                    const dayNum = Number(day);
+                    
+                    if (isNaN(periodNum) || isNaN(dayNum)) {
+                        console.error(`[ERROR] Invalid period or day: period=${period} (${typeof period}), day=${day} (${typeof day})`);
+                        return;
+                    }
+                    
+                    if (periodNum >= 1 && periodNum <= 10 && dayNum >= 2 && dayNum <= 7) {
+                        // CRITICAL: Ensure scheduleMap structure exists
+                        if (!scheduleMap[periodNum]) {
+                            console.error(`[ERROR] scheduleMap[${periodNum}] does not exist!`);
+                            scheduleMap[periodNum] = {};
+                        }
+                        if (!Array.isArray(scheduleMap[periodNum][dayNum])) {
+                            if (!scheduleMap[periodNum][dayNum]) {
+                                scheduleMap[periodNum][dayNum] = [];
+                            } else {
+                                console.error(`[ERROR] scheduleMap[${periodNum}][${dayNum}] is not an array!`, scheduleMap[periodNum][dayNum]);
+                                scheduleMap[periodNum][dayNum] = [];
+                            }
+                        }
+                        
+                        // CRITICAL: Verify before push
+                        const beforeCount = scheduleMap[periodNum][dayNum].length;
+                        scheduleMap[periodNum][dayNum].push(course);
+                        const afterCount = scheduleMap[periodNum][dayNum].length;
+                        
+                        if (afterCount !== beforeCount + 1) {
+                            console.error(`[ERROR] Failed to push course "${course.name}" to scheduleMap[${periodNum}][${dayNum}]`);
+                        }
+                        
+                        mappedCount++;
+                        console.log(`    ✓ Mapped: Period ${periodNum}, Day ${dayNum}`);
+                    } else {
+                        console.warn(`  ❌ Invalid: Period ${periodNum}, Day ${dayNum}`);
+                    }
+                });
             });
         });
         
@@ -218,26 +257,42 @@ export class ScheduleRenderer {
             
             // Days (Thứ 2-7) - CRITICAL: Loop through days 2-7
             for (let day = 2; day <= 7; day++) {
-                // Get courses for this specific period and day
-                const coursesForCell = scheduleMap[period] && scheduleMap[period][day] ? scheduleMap[period][day] : [];
+                // CRITICAL: Use explicit number conversion
+                const dayNum = Number(day);
+                const periodNum = Number(period);
+                
+                // CRITICAL: Verify scheduleMap structure before access
+                let coursesForCell = [];
+                
+                if (!scheduleMap[periodNum]) {
+                    console.error(`[RENDER ERROR] scheduleMap[${periodNum}] does not exist!`);
+                } else if (!scheduleMap[periodNum][dayNum]) {
+                    // This is OK - empty cell
+                    coursesForCell = [];
+                } else if (!Array.isArray(scheduleMap[periodNum][dayNum])) {
+                    console.error(`[RENDER ERROR] scheduleMap[${periodNum}][${dayNum}] is not an array!`, scheduleMap[periodNum][dayNum]);
+                    coursesForCell = [];
+                } else {
+                    coursesForCell = scheduleMap[periodNum][dayNum];
+                }
                 
                 // Debug: Log EVERY cell, not just non-empty ones
                 if (coursesForCell.length > 0) {
-                    console.log(`[RENDER HTML] Period ${period}, Thứ ${day}: ${coursesForCell.length} course(s) - ${coursesForCell.map(c => c.name).join(', ')}`);
+                    console.log(`[RENDER HTML] Period ${periodNum}, Thứ ${dayNum}: ${coursesForCell.length} course(s) - ${coursesForCell.map(c => c.name).join(', ')}`);
                 } else {
                     // Log empty cells for first period to verify structure
                     if (period === 1) {
-                        console.log(`[RENDER HTML] Period ${period}, Thứ ${day}: EMPTY (scheduleMap[${period}][${day}] = ${scheduleMap[period]?.[day]})`);
+                        console.log(`[RENDER HTML] Period ${periodNum}, Thứ ${dayNum}: EMPTY`);
                     }
                 }
                 
                 // CRITICAL: Create cell with proper data attributes
-                html += `<td class="schedule-cell" data-period="${period}" data-day="${day}" data-day-name="Thứ ${day}">`;
+                html += `<td class="schedule-cell" data-period="${periodNum}" data-day="${dayNum}" data-day-name="Thứ ${dayNum}">`;
                 
                 if (coursesForCell && coursesForCell.length > 0) {
                     coursesForCell.forEach((course, courseIdx) => {
-                        console.log(`  -> Rendering course ${courseIdx + 1}: "${course.name}" in Period ${period}, Thứ ${day}`);
-                        html += this.renderCourseCell(course, period);
+                        console.log(`  -> Rendering course ${courseIdx + 1}: "${course.name}" in Period ${periodNum}, Thứ ${dayNum}`);
+                        html += this.renderCourseCell(course, periodNum);
                     });
                 }
                 
@@ -316,8 +371,21 @@ export class ScheduleRenderer {
      * Render course cell
      */
     renderCourseCell(course, period) {
-        const scheduleInfo = course.scheduleInfo || {};
-        const room = scheduleInfo.room || '';
+        // CRITICAL: scheduleInfo is now an array, find entry that matches this period
+        let room = '';
+        if (course.scheduleInfo && Array.isArray(course.scheduleInfo)) {
+            // Find entry that contains this period
+            const matchingEntry = course.scheduleInfo.find(entry => 
+                entry.periods && Array.isArray(entry.periods) && entry.periods.includes(period)
+            );
+            if (matchingEntry) {
+                room = matchingEntry.room || '';
+            } else if (course.scheduleInfo.length > 0) {
+                // Fallback to first entry's room
+                room = course.scheduleInfo[0].room || '';
+            }
+        }
+        
         const instructor = course.instructor || '';
         const credits = course.credits || '';
         const weeks = course.weekRanges?.map(range => 

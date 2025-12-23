@@ -64,8 +64,11 @@ export class ScheduleManager {
             console.log('=== FINAL COURSE VERIFICATION BEFORE SAVE ===');
             processedCourses.forEach((course, idx) => {
                 const si = course.scheduleInfo;
-                if (si && si.day) {
-                    console.log(`✓ Course ${idx + 1}: "${course.name}" -> Day ${si.day}, Periods [${si.periods.join(',')}], Room ${si.room}`);
+                if (si && Array.isArray(si) && si.length > 0) {
+                    const entries = si.map((entry, eIdx) => 
+                        `Entry ${eIdx + 1}: Day ${entry.day}, Periods [${entry.periods.join(',')}], Room ${entry.room}`
+                    ).join('; ');
+                    console.log(`✓ Course ${idx + 1}: "${course.name}" -> ${si.length} schedule entry/entries (${entries})`);
                 } else {
                     console.error(`❌ Course ${idx + 1}: "${course.name}" -> INVALID scheduleInfo:`, si);
                 }
@@ -93,10 +96,11 @@ export class ScheduleManager {
             // Verify courses after save (before adding to local array)
             console.log('=== VERIFICATION AFTER SAVE ===');
             schedule.courses.forEach((c, idx) => {
-                if (c.scheduleInfo && c.scheduleInfo.day) {
-                    console.log(`✓ Course ${idx + 1}: "${c.name}" -> Day ${c.scheduleInfo.day}`);
+                if (c.scheduleInfo && Array.isArray(c.scheduleInfo) && c.scheduleInfo.length > 0) {
+                    const days = c.scheduleInfo.map(e => e.day).filter(d => d).join(', ');
+                    console.log(`✓ Course ${idx + 1}: "${c.name}" -> ${c.scheduleInfo.length} schedule entry/entries, Days: ${days}`);
                 } else {
-                    console.error(`❌ Course ${idx + 1}: "${c.name}" -> MISSING scheduleInfo!`);
+                    console.error(`❌ Course ${idx + 1}: "${c.name}" -> MISSING or INVALID scheduleInfo!`);
                 }
             });
 
@@ -118,17 +122,14 @@ export class ScheduleManager {
         console.log(`=== PROCESSING ${courses.length} COURSES ===`);
         
         const processed = courses.map((course, index) => {
-            const scheduleInfo = this.parseScheduleString(course.schedule);
+            // CRITICAL: parseScheduleString now returns an array of schedule entries
+            const scheduleInfoArray = this.parseScheduleString(course.schedule);
             const weekRanges = this.parseWeekRanges(course.weeks);
             const color = this.colorPalette[index % this.colorPalette.length];
 
             const processedCourse = {
                 ...course,
-                scheduleInfo: {
-                    day: scheduleInfo.day,
-                    periods: scheduleInfo.periods,
-                    room: scheduleInfo.room
-                }, // Ensure scheduleInfo is a plain object
+                scheduleInfo: scheduleInfoArray, // Array of schedule entries
                 weekRanges: weekRanges, // Ensure weekRanges is a plain array
                 color: color,
                 id: `course-${Date.now()}-${index}`
@@ -137,62 +138,109 @@ export class ScheduleManager {
             // CRITICAL: Log processing result with full details
             console.log(`Course ${index + 1}: "${course.name}"`);
             console.log(`  - Original schedule string: "${course.schedule}"`);
-            console.log(`  - Parsed scheduleInfo:`, JSON.stringify(scheduleInfo));
-            console.log(`  - Day: ${scheduleInfo.day} (type: ${typeof scheduleInfo.day})`);
-            console.log(`  - Periods: [${scheduleInfo.periods.join(',')}] (length: ${scheduleInfo.periods.length})`);
-            console.log(`  - Room: "${scheduleInfo.room}"`);
-            console.log(`  - Processed course scheduleInfo:`, JSON.stringify(processedCourse.scheduleInfo));
-
-            if (!scheduleInfo.day) {
-                console.warn(`  ❌ WARNING: Course "${course.name}" has no day!`);
+            console.log(`  - Parsed scheduleInfo entries: ${scheduleInfoArray.length}`);
+            
+            if (scheduleInfoArray.length === 0) {
+                console.warn(`  ❌ WARNING: Course "${course.name}" has no valid schedule entries!`);
+            } else {
+                scheduleInfoArray.forEach((entry, idx) => {
+                    console.log(`    Entry ${idx + 1}: Day ${entry.day}, Periods [${entry.periods.join(',')}], Room "${entry.room}"`);
+                });
             }
-            if (scheduleInfo.periods.length === 0) {
-                console.warn(`  ❌ WARNING: Course "${course.name}" has no periods!`);
-            }
+            
+            console.log(`  - Processed course scheduleInfo (array):`, JSON.stringify(processedCourse.scheduleInfo));
 
             return processedCourse;
         });
 
         console.log(`=== PROCESSED ${processed.length} COURSES ===`);
         
-        // Final verification
-        const coursesWithDay = processed.filter(c => c.scheduleInfo && c.scheduleInfo.day);
-        const coursesWithoutDay = processed.filter(c => !c.scheduleInfo || !c.scheduleInfo.day);
-        console.log(`- Courses with valid day: ${coursesWithDay.length}`);
-        console.log(`- Courses without day: ${coursesWithoutDay.length}`);
+        // Final verification - check if courses have at least one valid schedule entry
+        const coursesWithSchedule = processed.filter(c => 
+            c.scheduleInfo && 
+            Array.isArray(c.scheduleInfo) && 
+            c.scheduleInfo.length > 0 &&
+            c.scheduleInfo.some(entry => entry.day && entry.periods && entry.periods.length > 0)
+        );
+        const coursesWithoutSchedule = processed.filter(c => 
+            !c.scheduleInfo || 
+            !Array.isArray(c.scheduleInfo) || 
+            c.scheduleInfo.length === 0 ||
+            !c.scheduleInfo.some(entry => entry.day && entry.periods && entry.periods.length > 0)
+        );
         
-        if (coursesWithoutDay.length > 0) {
-            console.warn('Courses without day:', coursesWithoutDay.map(c => c.name));
+        console.log(`- Courses with valid schedule entries: ${coursesWithSchedule.length}`);
+        console.log(`- Courses without valid schedule entries: ${coursesWithoutSchedule.length}`);
+        
+        if (coursesWithoutSchedule.length > 0) {
+            console.warn('Courses without valid schedule entries:', coursesWithoutSchedule.map(c => c.name));
         }
 
         return processed;
     }
 
     /**
-     * Parse thời khóa biểu string
-     * Ví dụ: "Thứ 4,1-2,E2.403" -> {day: 4, periods: [1,2], room: "E2.403"}
-     * Hoặc: "Thứ 2,3-4,A141" -> {day: 2, periods: [3,4], room: "A141"}
+     * Parse thời khóa biểu string - HỖ TRỢ NHIỀU BUỔI HỌC
+     * Ví dụ: 
+     * - "Thứ 4,1-2,E2.403" -> [{day: 4, periods: [1,2], room: "E2.403"}]
+     * - "Thứ 4,1-2,E2.403; Thứ 5,6-7,A141" -> [{day: 4, periods: [1,2], room: "E2.403"}, {day: 5, periods: [6,7], room: "A141"}]
+     * - "Thứ 2,3-4,A101\nThứ 6,8-9,B202" -> [{day: 2, periods: [3,4], room: "A101"}, {day: 6, periods: [8,9], room: "B202"}]
      */
     parseScheduleString(scheduleStr) {
         if (!scheduleStr || scheduleStr.trim() === '') {
-            return { day: null, periods: [], room: '' };
+            return [];
         }
 
+        const str = scheduleStr.trim();
+        const results = [];
+
+        // Split by ; or \n to handle multiple schedule entries
+        const scheduleParts = str.split(/[;\n]/).map(s => s.trim()).filter(s => s.length > 0);
+
+        if (scheduleParts.length === 0) {
+            console.warn(`No schedule parts found in: "${str}"`);
+            return [];
+        }
+
+        scheduleParts.forEach((part, index) => {
+            const result = this.parseSingleScheduleEntry(part);
+            if (result.day && result.periods.length > 0) {
+                results.push(result);
+                console.log(`Parsed schedule part ${index + 1}: "${part}" ->`, result);
+            } else {
+                console.warn(`Failed to parse schedule part ${index + 1}: "${part}"`);
+            }
+        });
+
+        if (results.length === 0) {
+            console.warn(`Failed to parse any schedule entries from: "${str}"`);
+        } else {
+            console.log(`Successfully parsed ${results.length} schedule entry/entries from: "${str}"`);
+        }
+
+        return results; // Return array instead of single object
+    }
+
+    /**
+     * Parse a single schedule entry
+     * Ví dụ: "Thứ 4,1-2,E2.403" -> {day: 4, periods: [1,2], room: "E2.403"}
+     */
+    parseSingleScheduleEntry(partStr) {
         const result = {
             day: null,
             periods: [],
             room: ''
         };
 
-        const str = scheduleStr.trim();
+        const str = partStr.trim();
 
         // Step 1: Extract day (Thứ 2, Thứ 3, etc.) - phải match chính xác "Thứ" + số
         const dayMatch = str.match(/Thứ\s*(\d+)/i);
         if (dayMatch) {
-            const dayNum = parseInt(dayMatch[1]);
+            const dayNum = parseInt(dayMatch[1], 10); // Explicit radix
             // Validate day (2-7: Monday to Saturday)
-            if (dayNum >= 2 && dayNum <= 7) {
-                result.day = dayNum;
+            if (!isNaN(dayNum) && dayNum >= 2 && dayNum <= 7) {
+                result.day = dayNum; // Ensure it's a number
             } else {
                 console.warn(`Invalid day number: ${dayNum} in schedule string: ${str}`);
             }
@@ -210,8 +258,8 @@ export class ScheduleManager {
         // Tìm pattern số-số (tiết học, không phải số ngày)
         const periodMatch = periodStr.match(/(\d+)\s*[-–]\s*(\d+)/);
         if (periodMatch) {
-            const start = parseInt(periodMatch[1]);
-            const end = parseInt(periodMatch[2]);
+            const start = parseInt(periodMatch[1], 10);
+            const end = parseInt(periodMatch[2], 10);
             // Validate periods (1-10)
             if (start >= 1 && start <= 10 && end >= 1 && end <= 10 && start <= end) {
                 for (let i = start; i <= end; i++) {
@@ -227,13 +275,6 @@ export class ScheduleManager {
         const roomMatch = str.match(/([A-Z]\d+\.?\d*|[A-Z]\d+)(?:\s|$)/);
         if (roomMatch) {
             result.room = roomMatch[1].trim();
-        }
-
-        // Debug log
-        if (result.day || result.periods.length > 0) {
-            console.log(`Parsed schedule: "${str}" ->`, result);
-        } else {
-            console.warn(`Failed to parse schedule string: "${str}"`);
         }
 
         return result;
@@ -449,16 +490,18 @@ export class ScheduleManager {
                 schedule.courses.forEach((course, idx) => {
                     console.log(`Course ${idx + 1}: "${course.name}"`);
                     console.log(`  - Has scheduleInfo:`, !!course.scheduleInfo);
+                    console.log(`  - scheduleInfo type:`, Array.isArray(course.scheduleInfo) ? 'Array' : typeof course.scheduleInfo);
                     console.log(`  - scheduleInfo:`, course.scheduleInfo);
-                    console.log(`  - Day:`, course.scheduleInfo?.day, `(type: ${typeof course.scheduleInfo?.day})`);
-                    console.log(`  - Periods:`, course.scheduleInfo?.periods);
                     
-                    if (course.scheduleInfo && course.scheduleInfo.day) {
+                    if (course.scheduleInfo && Array.isArray(course.scheduleInfo) && course.scheduleInfo.length > 0) {
                         validCount++;
-                        console.log(`  ✓ Valid - Day ${course.scheduleInfo.day}, Periods [${course.scheduleInfo.periods.join(',')}]`);
+                        const entries = course.scheduleInfo.map((entry, eIdx) => 
+                            `Entry ${eIdx + 1}: Day ${entry.day}, Periods [${entry.periods?.join(',') || ''}], Room ${entry.room || ''}`
+                        ).join('; ');
+                        console.log(`  ✓ Valid - ${course.scheduleInfo.length} schedule entry/entries (${entries})`);
                     } else {
                         invalidCount++;
-                        console.error(`  ❌ INVALID - Missing scheduleInfo or day!`);
+                        console.error(`  ❌ INVALID - Missing scheduleInfo or not an array or empty!`);
                     }
                 });
                 
