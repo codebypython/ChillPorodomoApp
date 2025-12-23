@@ -145,11 +145,42 @@ export class ScheduleRenderer {
                     <tbody>
         `;
 
+        // ALTERNATIVE APPROACH: Render directly from courses instead of weeklySchedule
+        // This is more reliable and easier to debug
+        const courses = schedule.courses || [];
+        console.log('=== RENDERING FROM COURSES DIRECTLY ===');
+        console.log('Total courses:', courses.length);
+        
+        // Create a map: period -> day -> courses
+        const scheduleMap = {};
+        for (let p = 1; p <= 10; p++) {
+            scheduleMap[p] = {};
+            for (let d = 2; d <= 7; d++) {
+                scheduleMap[p][d] = [];
+            }
+        }
+        
+        // Populate map from courses
+        courses.forEach(course => {
+            if (!course.scheduleInfo || !course.scheduleInfo.day) return;
+            
+            const day = course.scheduleInfo.day; // 2-7
+            const periods = course.scheduleInfo.periods || [];
+            
+            periods.forEach(period => {
+                if (period >= 1 && period <= 10 && day >= 2 && day <= 7) {
+                    if (!scheduleMap[period][day]) {
+                        scheduleMap[period][day] = [];
+                    }
+                    scheduleMap[period][day].push(course);
+                    console.log(`Mapped: "${course.name}" -> Period ${period}, Day ${day}`);
+                }
+            });
+        });
+        
         // Render each period
-        // CRITICAL: Use direct array access with proper indices
         for (let period = 1; period <= 10; period++) {
             const timeSlot = this.scheduleManager.getTimeSlot(period);
-            const periodIndex = period - 1; // 0-9
             
             html += '<tr>';
             
@@ -159,40 +190,19 @@ export class ScheduleRenderer {
             // Time slot
             html += `<td class="time-cell">${timeSlot.start}<br>${timeSlot.end}</td>`;
             
-            // Days (Monday to Saturday, index 0-5)
-            // IMPORTANT: weeklySchedule[periodIndex][dayIndex]
-            // - periodIndex: 0-9 (periods 1-10)
-            // - dayIndex: 0-5 (Thứ 2-7, where dayIndex 0 = Thứ 2, dayIndex 5 = Thứ 7)
-            for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
-                const actualDay = dayIndex + 2; // Thứ 2-7
+            // Days (Thứ 2-7)
+            for (let day = 2; day <= 7; day++) {
+                const dayIndex = day - 2; // 0-5 for array access
+                const coursesForCell = scheduleMap[period][day] || [];
                 
-                // DIRECT ACCESS: Get courses directly from array
-                let courses = [];
-                try {
-                    if (weeklySchedule[periodIndex] && 
-                        Array.isArray(weeklySchedule[periodIndex]) && 
-                        weeklySchedule[periodIndex][dayIndex] &&
-                        Array.isArray(weeklySchedule[periodIndex][dayIndex])) {
-                        courses = weeklySchedule[periodIndex][dayIndex];
-                    }
-                } catch (e) {
-                    console.error(`Error accessing weeklySchedule[${periodIndex}][${dayIndex}]:`, e);
+                if (coursesForCell.length > 0) {
+                    console.log(`[RENDER] Period ${period}, Thứ ${day}: ${coursesForCell.length} course(s) - ${coursesForCell.map(c => c.name).join(', ')}`);
                 }
                 
-                // Debug: Log EVERY cell, not just non-empty ones
-                if (courses.length > 0) {
-                    console.log(`[RENDER] Period ${period} (idx ${periodIndex}), Thứ ${actualDay} (idx ${dayIndex}): ${courses.length} course(s) - ${courses.map(c => c.name).join(', ')}`);
-                } else {
-                    // Log empty cells for first few periods to verify structure
-                    if (period <= 3) {
-                        console.log(`[RENDER] Period ${period} (idx ${periodIndex}), Thứ ${actualDay} (idx ${dayIndex}): EMPTY`);
-                    }
-                }
+                html += `<td class="schedule-cell" data-period="${period}" data-day="${day}">`;
                 
-                html += `<td class="schedule-cell" data-period="${period}" data-day="${actualDay}" data-period-index="${periodIndex}" data-day-index="${dayIndex}">`;
-                
-                if (courses && Array.isArray(courses) && courses.length > 0) {
-                    courses.forEach(course => {
+                if (coursesForCell.length > 0) {
+                    coursesForCell.forEach(course => {
                         html += this.renderCourseCell(course, period);
                     });
                 }
