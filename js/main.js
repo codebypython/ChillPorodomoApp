@@ -366,15 +366,25 @@ class ChillPomodoroApp {
             console.log('Schedule object:', {
                 id: schedule.id,
                 name: schedule.name,
-                weeklyScheduleType: Array.isArray(schedule.weeklySchedule) ? 'Array' : typeof schedule.weeklySchedule,
-                weeklyScheduleLength: schedule.weeklySchedule?.length
+                coursesCount: schedule.courses?.length || 0,
+                hasCourses: !!schedule.courses,
+                coursesIsArray: Array.isArray(schedule.courses)
             });
 
-            // CRITICAL: Verify schedule structure before rendering
-            if (!schedule.weeklySchedule || !Array.isArray(schedule.weeklySchedule)) {
-                console.error('ERROR: weeklySchedule is invalid!', schedule.weeklySchedule);
-                throw new Error('Cấu trúc lịch học không hợp lệ.');
+            // CRITICAL: Verify schedule has courses (we don't store weeklySchedule anymore)
+            if (!schedule.courses || !Array.isArray(schedule.courses) || schedule.courses.length === 0) {
+                console.error('ERROR: Schedule has no courses!', schedule);
+                throw new Error('Lịch học không có dữ liệu môn học.');
             }
+
+            // Verify courses have valid scheduleInfo
+            const validCourses = schedule.courses.filter(c => c.scheduleInfo && c.scheduleInfo.day);
+            if (validCourses.length === 0) {
+                console.error('ERROR: No courses with valid scheduleInfo!');
+                throw new Error('Không có môn học nào có thông tin lịch học hợp lệ.');
+            }
+
+            console.log(`Schedule has ${validCourses.length} valid courses out of ${schedule.courses.length} total`);
 
             // Show success
             this.showNotification('Tạo lịch học thành công!', 'success');
@@ -382,11 +392,11 @@ class ChillPomodoroApp {
             // Render schedule list
             await this.renderSchedules();
 
-            // Auto show the schedule - USE THE SCHEDULE OBJECT DIRECTLY (not from DB)
+            // Auto show the schedule - render directly from courses
             console.log('=== RENDERING SCHEDULE ===');
-            console.log('Using schedule object with weeklySchedule:', {
-                length: schedule.weeklySchedule.length,
-                firstPeriodLength: schedule.weeklySchedule[0]?.length
+            console.log('Using schedule object with courses:', {
+                totalCourses: schedule.courses.length,
+                validCourses: validCourses.length
             });
             
             this.scheduleManager.currentSchedule = schedule;
