@@ -275,22 +275,22 @@ export class ScheduleRenderer {
         }
         
         // Render each period
+        // CRITICAL: Ensure we render exactly 10 rows (periods 1-10)
         for (let period = 1; period <= 10; period++) {
             const timeSlot = this.scheduleManager.getTimeSlot(period);
+            const periodNum = Number(period);
             
             html += '<tr>';
             
-            // Period number
+            // Period number - CRITICAL: Always render
             html += `<td class="period-cell">${period}</td>`;
             
-            // Time slot
+            // Time slot - CRITICAL: Always render
             html += `<td class="time-cell">${timeSlot.start}<br>${timeSlot.end}</td>`;
             
-            // Days (Thứ 2-7) - CRITICAL: Loop through days 2-7
+            // Days (Thứ 2-7) - CRITICAL: Loop through days 2-7, ALWAYS render all 6 cells
             for (let day = 2; day <= 7; day++) {
-                // CRITICAL: Use explicit number conversion
                 const dayNum = Number(day);
-                const periodNum = Number(period);
                 
                 // CRITICAL: Verify scheduleMap structure before access
                 let coursesForCell = [];
@@ -317,19 +317,23 @@ export class ScheduleRenderer {
                     }
                 }
                 
-                // CRITICAL: Create cell with proper data attributes
+                // CRITICAL: Always create cell, even if empty
+                // This ensures all 6 day columns are always rendered
                 html += `<td class="schedule-cell" data-period="${periodNum}" data-day="${dayNum}" data-day-name="Thứ ${dayNum}">`;
                 
-                if (coursesForCell && coursesForCell.length > 0) {
+                // CRITICAL: Only render courses if they exist
+                if (coursesForCell && Array.isArray(coursesForCell) && coursesForCell.length > 0) {
                     coursesForCell.forEach((course, courseIdx) => {
                         console.log(`  -> Rendering course ${courseIdx + 1}: "${course.name}" in Period ${periodNum}, Thứ ${dayNum}`);
                         html += this.renderCourseCell(course, periodNum);
                     });
                 }
                 
+                // CRITICAL: Always close cell
                 html += '</td>';
             }
             
+            // CRITICAL: Always close row
             html += '</tr>';
             
             // Add break row after period 5

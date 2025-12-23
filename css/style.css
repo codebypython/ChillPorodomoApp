@@ -1362,6 +1362,7 @@ body.background-only-mode .app-container {
 
 .schedule-table {
     width: 100%;
+    table-layout: fixed; /* CRITICAL: Fixed layout ensures all columns render */
     border-collapse: collapse;
     background: var(--bg-primary);
     border-radius: var(--border-radius);
@@ -1379,6 +1380,28 @@ body.background-only-mode .app-container {
     position: sticky;
     top: 0;
     z-index: 10;
+    display: table-cell !important; /* CRITICAL: Force display as table cell */
+    visibility: visible !important; /* CRITICAL: Force visibility */
+    width: auto; /* Let table-layout: fixed handle width distribution */
+}
+
+/* CRITICAL: Ensure period and time columns have fixed width */
+.schedule-table th.period-header {
+    width: 60px;
+    min-width: 60px;
+    max-width: 60px;
+}
+
+.schedule-table th.time-header {
+    width: 100px;
+    min-width: 100px;
+    max-width: 100px;
+}
+
+/* CRITICAL: Ensure all day columns have equal width */
+.schedule-table th.day-header {
+    width: calc((100% - 160px) / 6); /* Equal width for 6 day columns (total - period - time) */
+    min-width: 120px;
 }
 
 .schedule-table th.period-header,
@@ -1393,13 +1416,54 @@ body.background-only-mode .app-container {
     min-width: 150px;
     height: 90px;
     position: relative;
+    display: table-cell !important; /* CRITICAL: Force display as table cell */
+    visibility: visible !important; /* CRITICAL: Force visibility */
+    opacity: 1 !important; /* CRITICAL: Force opacity */
+    width: auto; /* Let table-layout: fixed handle width distribution */
+}
+
+/* CRITICAL: Ensure period and time cells have fixed width matching headers */
+.schedule-table td.period-cell {
+    width: 60px;
+    min-width: 60px;
+    max-width: 60px;
+    background: var(--bg-tertiary);
+    font-weight: 700;
+    text-align: center;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+    display: table-cell !important; /* CRITICAL: Force display */
+    visibility: visible !important; /* CRITICAL: Force visibility */
+}
+
+.schedule-table td.time-cell {
+    width: 100px;
+    min-width: 100px;
+    max-width: 100px;
+    background: var(--bg-secondary);
+    font-weight: 600;
+    text-align: center;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    line-height: 1.4;
+    display: table-cell !important; /* CRITICAL: Force display */
+    visibility: visible !important; /* CRITICAL: Force visibility */
+}
+
+/* CRITICAL: Ensure all day cells have equal width matching headers */
+.schedule-table td[data-day] {
+    width: calc((100% - 160px) / 6); /* Equal width for 6 day columns */
+    min-width: 120px;
 }
 
 .schedule-cell {
     height: 100%;
-    display: flex;
+    min-height: 90px; /* CRITICAL: Ensure minimum height */
+    display: flex !important; /* CRITICAL: Force flex display */
     flex-direction: column;
     gap: 0.25rem;
+    visibility: visible !important; /* CRITICAL: Force visibility */
+    opacity: 1 !important; /* CRITICAL: Force opacity */
 }
 
 .course-cell {
@@ -1442,22 +1506,7 @@ body.background-only-mode .app-container {
     line-height: 1.2;
 }
 
-.time-cell {
-    background: var(--bg-secondary);
-    font-weight: 600;
-    text-align: center;
-    font-size: 0.9rem;
-    color: var(--text-primary);
-    line-height: 1.4;
-}
-
-.period-cell {
-    background: var(--bg-tertiary);
-    font-weight: 700;
-    text-align: center;
-    font-size: 1.1rem;
-    color: var(--text-primary);
-}
+/* Period and time cell styles are defined above in .schedule-table td.period-cell and .schedule-table td.time-cell */
 
 .break-row {
     background: var(--bg-tertiary);
