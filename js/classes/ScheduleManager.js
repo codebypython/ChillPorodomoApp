@@ -76,18 +76,33 @@ export class ScheduleManager {
             }
             
             // Log distribution of courses across days
-            console.log('=== COURSE DISTRIBUTION BY DAY ===');
-            const dayCounts = [0, 0, 0, 0, 0, 0]; // Thứ 2-7
+            console.log('=== COURSE DISTRIBUTION BY DAY (FINAL VERIFICATION) ===');
+            const dayCounts = [0, 0, 0, 0, 0, 0]; // Thứ 2-7 (index 0-5)
+            const dayCourses = [[], [], [], [], [], []]; // Store course names per day
+            
             for (let p = 0; p < 10; p++) {
                 for (let d = 0; d < 6; d++) {
-                    const count = weeklySchedule[p][d].length;
+                    const courses = weeklySchedule[p][d];
+                    const count = courses.length;
                     if (count > 0) {
                         dayCounts[d] += count;
-                        console.log(`Period ${p+1}, Thứ ${d+2}: ${count} course(s) - ${weeklySchedule[p][d].map(c => c.name).join(', ')}`);
+                        const courseNames = courses.map(c => c.name).join(', ');
+                        console.log(`✓ Period ${p+1} (idx ${p}), Thứ ${d+2} (idx ${d}): ${count} course(s) - ${courseNames}`);
+                        dayCourses[d].push(...courses.map(c => c.name));
                     }
                 }
             }
-            console.log('Total courses per day:', dayCounts.map((count, idx) => `Thứ ${idx+2}: ${count}`).join(', '));
+            
+            console.log('=== SUMMARY BY DAY ===');
+            dayCounts.forEach((count, idx) => {
+                const dayNum = idx + 2;
+                if (count > 0) {
+                    const uniqueCourses = [...new Set(dayCourses[idx])];
+                    console.log(`Thứ ${dayNum} (index ${idx}): ${count} total entries, ${uniqueCourses.length} unique courses - ${uniqueCourses.join(', ')}`);
+                } else {
+                    console.log(`Thứ ${dayNum} (index ${idx}): 0 courses`);
+                }
+            });
             
             // Create schedule object
             const schedule = {
@@ -365,12 +380,42 @@ export class ScheduleManager {
         }
 
         // Debug log - Detailed structure
-        console.log(`Schedule generation complete:`);
+        console.log(`=== SCHEDULE GENERATION COMPLETE ===`);
         console.log(`- Processed: ${processedCount} course-period entries`);
         console.log(`- Skipped: ${skippedCount} courses`);
-        console.log(`- Schedule structure:`);
+        
+        // CRITICAL TEST: Verify each course is in the correct position
+        console.log('=== VERIFICATION TEST ===');
+        let testPassed = true;
+        for (const course of courses) {
+            if (!course.scheduleInfo || !course.scheduleInfo.day) continue;
+            
+            const expectedDay = course.scheduleInfo.day;
+            const expectedDayIndex = expectedDay - 2;
+            const expectedPeriods = course.scheduleInfo.periods;
+            
+            for (const period of expectedPeriods) {
+                const periodIndex = period - 1;
+                const coursesAtPosition = schedule[periodIndex][expectedDayIndex];
+                const found = coursesAtPosition.find(c => c.name === course.name);
+                
+                if (!found) {
+                    console.error(`❌ TEST FAILED: Course "${course.name}" NOT FOUND at Period ${period} (idx ${periodIndex}), Day ${expectedDay} (idx ${expectedDayIndex})`);
+                    testPassed = false;
+                } else {
+                    console.log(`✓ Course "${course.name}" FOUND at Period ${period} (idx ${periodIndex}), Day ${expectedDay} (idx ${expectedDayIndex})`);
+                }
+            }
+        }
+        
+        if (testPassed) {
+            console.log('✅ ALL TESTS PASSED: All courses are in correct positions');
+        } else {
+            console.error('❌ TESTS FAILED: Some courses are in wrong positions!');
+        }
         
         // Detailed log for each period
+        console.log('=== SCHEDULE STRUCTURE SUMMARY ===');
         schedule.forEach((period, periodIdx) => {
             const periodNum = periodIdx + 1;
             const dayCounts = period.map((day, dayIdx) => {
@@ -385,9 +430,6 @@ export class ScheduleManager {
                 console.log(`  Period ${periodNum}: ${dayCounts.join(', ')}`);
             }
         });
-        
-        // Log full structure for debugging
-        console.log('Full schedule array:', schedule);
 
         return schedule;
     }
@@ -541,4 +583,5 @@ export class ScheduleManager {
         return days[dayNumber] || '';
     }
 }
+
 
