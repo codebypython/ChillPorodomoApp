@@ -13,6 +13,9 @@ import { LibraryManager } from './classes/LibraryManager.js';
 import { PresetManager } from './classes/PresetManager.js';
 import { ScheduleManager } from './classes/ScheduleManager.js';
 import { ScheduleRenderer } from './utils/scheduleRenderer.js';
+import { DailyActivityManager } from './classes/DailyActivityManager.js';
+import { DailyScheduleRenderer } from './utils/DailyScheduleRenderer.js';
+import { ActivityScheduler } from './utils/ActivityScheduler.js';
 
 class ChillPomodoroApp {
     constructor() {
@@ -24,7 +27,11 @@ class ChillPomodoroApp {
         this.presetManager = null;
         this.scheduleManager = null;
         this.scheduleRenderer = null;
+        this.dailyActivityManager = null;
+        this.dailyScheduleRenderer = null;
+        this.activityScheduler = null;
         this.currentTab = 'timer';
+        this.currentScheduleType = 'class'; // 'class' or 'life'
     }
 
     /**
@@ -56,6 +63,10 @@ class ChillPomodoroApp {
             this.scheduleManager = new ScheduleManager();
             await this.scheduleManager.loadSchedules();
             this.scheduleRenderer = new ScheduleRenderer(this.scheduleManager);
+            
+            this.activityScheduler = new ActivityScheduler();
+            this.dailyActivityManager = new DailyActivityManager(this.scheduleManager);
+            this.dailyScheduleRenderer = new DailyScheduleRenderer(this.dailyActivityManager, this.activityScheduler);
 
             // Make managers globally accessible for onclick handlers
             window.libraryManager = this.libraryManager;
@@ -341,10 +352,25 @@ class ChillPomodoroApp {
             btn.addEventListener('click', (e) => {
                 if (btn.disabled) return;
                 
+                const scheduleType = btn.dataset.type;
+                this.currentScheduleType = scheduleType;
+                
                 // Update active state
                 document.querySelectorAll('.schedule-type-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
+                
+                // Show/hide appropriate sections
+                this.switchScheduleType(scheduleType);
             });
+        });
+
+        // Daily schedule buttons
+        document.getElementById('createDailyScheduleBtn')?.addEventListener('click', () => {
+            this.showCreateDailyScheduleForm();
+        });
+
+        document.getElementById('viewTodayScheduleBtn')?.addEventListener('click', () => {
+            this.viewTodaySchedule();
         });
     }
 

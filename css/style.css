@@ -1696,3 +1696,569 @@ body.background-only-mode .app-container {
     }
 }
 
+/* ===== Daily Activity Schedule Styles ===== */
+.daily-schedule-container {
+    margin-top: 2rem;
+    background: var(--bg-secondary);
+    border-radius: var(--border-radius-lg);
+    padding: 2rem;
+    box-shadow: var(--shadow-lg);
+}
+
+.daily-schedule-form,
+.daily-schedule-view {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.daily-schedule-header {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.daily-schedule-header h2 {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.date-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.date-label {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.class-badge,
+.no-class-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: var(--border-radius);
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.class-badge {
+    background: var(--primary-color);
+    color: white;
+}
+
+.no-class-badge {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.time-slots-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.time-slot-card {
+    background: var(--bg-primary);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+    border: 2px solid var(--border-color);
+    transition: var(--transition);
+}
+
+.time-slot-card.morning {
+    border-color: #fbbf24;
+}
+
+.time-slot-card.afternoon {
+    border-color: #8b5cf6;
+}
+
+.time-slot-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.time-slot-icon {
+    font-size: 1.5rem;
+}
+
+.time-slot-title {
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+.time-slot-time {
+    font-size: 1rem;
+    color: var(--text-secondary);
+    margin-top: 0.5rem;
+}
+
+.time-slot-duration {
+    color: var(--text-tertiary);
+    font-size: 0.9rem;
+}
+
+.course-selection-section,
+.other-activities-section {
+    margin-bottom: 2rem;
+    background: var(--bg-primary);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+}
+
+.course-selection-section h3,
+.other-activities-section h3 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+}
+
+.course-selection-list,
+.other-activities-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.course-selection-item,
+.other-activity-item {
+    background: var(--bg-secondary);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    transition: var(--transition);
+}
+
+.course-selection-item:hover,
+.other-activity-item:hover {
+    border-color: var(--primary-color);
+    box-shadow: var(--shadow-md);
+}
+
+.course-selection-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.course-checkbox,
+.activity-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    flex: 1;
+}
+
+.course-checkbox input,
+.activity-checkbox input {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.course-name,
+.activity-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 1rem;
+}
+
+.expand-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.2rem;
+    color: var(--text-secondary);
+    padding: 0.25rem 0.5rem;
+    transition: var(--transition);
+}
+
+.expand-btn:hover {
+    color: var(--primary-color);
+}
+
+.course-details,
+.activity-details {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.course-info {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.course-time,
+.course-room {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.course-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.input-group label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.input-group input,
+.input-group textarea,
+.input-group select {
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    transition: var(--transition);
+}
+
+.input-group input:focus,
+.input-group textarea:focus,
+.input-group select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.input-group textarea {
+    min-height: 100px;
+    resize: vertical;
+    font-family: inherit;
+}
+
+.input-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+}
+
+.notes-section {
+    margin-bottom: 2rem;
+    background: var(--bg-primary);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+}
+
+.notes-section label {
+    display: block;
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.notes-input {
+    width: 100%;
+    min-height: 100px;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.empty-courses {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary);
+}
+
+.empty-courses .hint {
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+}
+
+/* Daily Schedule View */
+.daily-schedule-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.time-slot-section {
+    background: var(--bg-primary);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+    border: 2px solid var(--border-color);
+}
+
+.time-slot-section.morning {
+    border-color: #fbbf24;
+}
+
+.time-slot-section.afternoon {
+    border-color: #8b5cf6;
+}
+
+.time-slot-section .time-slot-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.time-slot-section .time-slot-title {
+    font-size: 1.3rem;
+    font-weight: 600;
+}
+
+.time-slot-section .time-slot-time {
+    margin-left: auto;
+    font-size: 1rem;
+    color: var(--text-secondary);
+}
+
+.activities-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.activity-item {
+    background: var(--bg-secondary);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+    border: 2px solid var(--border-color);
+    transition: var(--transition);
+}
+
+.activity-item:hover {
+    box-shadow: var(--shadow-md);
+}
+
+.activity-item.completed {
+    border-color: #10b981;
+    opacity: 0.8;
+}
+
+.activity-item.in-progress {
+    border-color: var(--primary-color);
+}
+
+.activity-item.skipped {
+    border-color: var(--text-tertiary);
+    opacity: 0.6;
+}
+
+.activity-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.activity-status {
+    font-size: 1.5rem;
+}
+
+.activity-time {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
+.activity-priority {
+    padding: 0.25rem 0.75rem;
+    border-radius: var(--border-radius);
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.priority-high {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.priority-medium {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.priority-low {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.activity-content {
+    margin-bottom: 1rem;
+}
+
+.activity-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.activity-topic {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.activity-content-text {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    line-height: 1.6;
+    margin-top: 0.5rem;
+}
+
+.activity-content-text div {
+    margin-bottom: 0.25rem;
+}
+
+.activity-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 0.5rem;
+}
+
+.activity-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.activity-btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: var(--border-radius);
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.activity-btn.complete {
+    background: #10b981;
+    color: white;
+}
+
+.activity-btn.complete:hover {
+    background: #059669;
+}
+
+.activity-btn.skip {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.activity-btn.skip:hover {
+    background: var(--border-color);
+}
+
+.schedule-stats {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.stat-item {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.schedule-notes {
+    background: var(--bg-primary);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+    margin-top: 2rem;
+}
+
+.schedule-notes h4 {
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.schedule-notes p {
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.schedule-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+    justify-content: flex-end;
+}
+
+.daily-schedule-card {
+    border-left: 4px solid var(--primary-color);
+}
+
+/* Responsive Daily Schedule */
+@media (max-width: 768px) {
+    .daily-schedule-container {
+        padding: 1rem;
+    }
+
+    .time-slots-info {
+        grid-template-columns: 1fr;
+    }
+
+    .input-row {
+        grid-template-columns: 1fr;
+    }
+
+    .form-actions {
+        flex-direction: column;
+    }
+
+    .form-actions button {
+        width: 100%;
+    }
+
+    .activity-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .activity-actions {
+        width: 100%;
+    }
+
+    .activity-btn {
+        flex: 1;
+    }
+}
+

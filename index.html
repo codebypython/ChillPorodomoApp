@@ -298,7 +298,7 @@
                         <button class="schedule-type-btn active" data-type="class">
                             📚 Lịch Học Trên Trường
                         </button>
-                        <button class="schedule-type-btn" data-type="life" disabled title="Sắp có">
+                        <button class="schedule-type-btn" data-type="life">
                             🏠 Lịch Sinh Hoạt
                         </button>
                         <button class="schedule-type-btn" data-type="exercise" disabled title="Sắp có">
@@ -306,7 +306,8 @@
                         </button>
                     </div>
 
-                    <div class="schedule-actions">
+                    <!-- Class Schedule Actions -->
+                    <div id="classScheduleActions" class="schedule-actions">
                         <button id="uploadScheduleBtn" class="btn-action primary">
                             📤 Nạp Dữ Liệu Lịch
                         </button>
@@ -315,12 +316,34 @@
                         </button>
                     </div>
 
+                    <!-- Daily Activity Schedule Actions -->
+                    <div id="dailyScheduleActions" class="schedule-actions" style="display: none;">
+                        <button id="createDailyScheduleBtn" class="btn-action primary">
+                            ➕ Tạo Lịch Sinh Hoạt
+                        </button>
+                        <button id="viewTodayScheduleBtn" class="btn-action secondary">
+                            📅 Xem Lịch Hôm Nay
+                        </button>
+                    </div>
+
+                    <!-- Class Schedule List -->
                     <div id="scheduleList" class="schedule-list">
                         <!-- Danh sách lịch đã tạo -->
                     </div>
 
+                    <!-- Daily Activity Schedule List -->
+                    <div id="dailyScheduleList" class="schedule-list" style="display: none;">
+                        <!-- Danh sách lịch sinh hoạt -->
+                    </div>
+
+                    <!-- Class Schedule Table -->
                     <div id="scheduleTableContainer" class="schedule-table-container" style="display: none;">
                         <!-- Bảng lịch tuần -->
+                    </div>
+
+                    <!-- Daily Activity Schedule Container -->
+                    <div id="dailyScheduleContainer" class="daily-schedule-container" style="display: none;">
+                        <!-- Lịch sinh hoạt -->
                     </div>
                 </div>
             </div>
