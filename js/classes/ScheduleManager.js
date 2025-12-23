@@ -53,75 +53,34 @@ export class ScheduleManager {
             // Process courses
             const processedCourses = this.processCourses(courses);
             
-            // Generate weekly schedule
-            const weeklySchedule = this.generateWeeklySchedule(processedCourses);
+            // SOLUTION: Don't store weeklySchedule in IndexedDB
+            // Generate it on-demand to avoid serialization issues
+            // Just store courses and generate weeklySchedule when needed
             
-            // CRITICAL: Verify schedule structure BEFORE creating object
-            console.log('=== VERIFYING WEEKLY SCHEDULE STRUCTURE ===');
-            console.log('Schedule type:', Array.isArray(weeklySchedule) ? 'Array' : typeof weeklySchedule);
-            console.log('Schedule length:', weeklySchedule.length);
+            console.log('=== CREATING SCHEDULE OBJECT ===');
+            console.log(`Storing ${processedCourses.length} courses`);
             
-            if (!Array.isArray(weeklySchedule) || weeklySchedule.length !== 10) {
-                console.error('ERROR: Invalid schedule structure!', weeklySchedule);
-                throw new Error('Có lỗi khi tạo cấu trúc lịch học.');
-            }
-            
-            // Verify each period
-            for (let p = 0; p < 10; p++) {
-                const period = weeklySchedule[p];
-                if (!Array.isArray(period) || period.length !== 6) {
-                    console.error(`ERROR: Period ${p+1} invalid!`, period);
-                    throw new Error(`Có lỗi ở Period ${p+1}.`);
-                }
-            }
-            
-            // Log distribution of courses across days
-            console.log('=== COURSE DISTRIBUTION BY DAY (FINAL VERIFICATION) ===');
-            const dayCounts = [0, 0, 0, 0, 0, 0]; // Thứ 2-7 (index 0-5)
-            const dayCourses = [[], [], [], [], [], []]; // Store course names per day
-            
-            for (let p = 0; p < 10; p++) {
-                for (let d = 0; d < 6; d++) {
-                    const courses = weeklySchedule[p][d];
-                    const count = courses.length;
-                    if (count > 0) {
-                        dayCounts[d] += count;
-                        const courseNames = courses.map(c => c.name).join(', ');
-                        console.log(`✓ Period ${p+1} (idx ${p}), Thứ ${d+2} (idx ${d}): ${count} course(s) - ${courseNames}`);
-                        dayCourses[d].push(...courses.map(c => c.name));
-                    }
-                }
-            }
-            
-            console.log('=== SUMMARY BY DAY ===');
-            dayCounts.forEach((count, idx) => {
-                const dayNum = idx + 2;
-                if (count > 0) {
-                    const uniqueCourses = [...new Set(dayCourses[idx])];
-                    console.log(`Thứ ${dayNum} (index ${idx}): ${count} total entries, ${uniqueCourses.length} unique courses - ${uniqueCourses.join(', ')}`);
+            // Final verification of courses before saving
+            console.log('=== FINAL COURSE VERIFICATION BEFORE SAVE ===');
+            processedCourses.forEach((course, idx) => {
+                const si = course.scheduleInfo;
+                if (si && si.day) {
+                    console.log(`✓ Course ${idx + 1}: "${course.name}" -> Day ${si.day}, Periods [${si.periods.join(',')}], Room ${si.room}`);
                 } else {
-                    console.log(`Thứ ${dayNum} (index ${idx}): 0 courses`);
+                    console.error(`❌ Course ${idx + 1}: "${course.name}" -> INVALID scheduleInfo:`, si);
                 }
             });
             
-            // Create schedule object
+            // Create schedule object WITHOUT weeklySchedule
+            // We'll generate it on-demand when rendering
             const schedule = {
                 name: scheduleName || `Lịch học ${new Date().toLocaleDateString('vi-VN')}`,
                 type: 'class',
                 courses: processedCourses,
-                weeklySchedule: weeklySchedule,
+                // DO NOT store weeklySchedule - generate on demand to avoid IndexedDB serialization issues
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             };
-
-            // Verify schedule object structure
-            console.log('=== SCHEDULE OBJECT STRUCTURE ===');
-            console.log('weeklySchedule in object:', {
-                isArray: Array.isArray(schedule.weeklySchedule),
-                length: schedule.weeklySchedule.length,
-                firstPeriodIsArray: Array.isArray(schedule.weeklySchedule[0]),
-                firstPeriodLength: schedule.weeklySchedule[0]?.length
-            });
 
             // Save to IndexedDB
             const id = await this.storageManager.addItem('schedules', schedule);
@@ -129,17 +88,21 @@ export class ScheduleManager {
 
             console.log('=== SCHEDULE SAVED TO INDEXEDDB ===');
             console.log('Schedule ID:', id);
+            console.log('Courses saved:', schedule.courses.length);
+            
+            // Verify courses after save (before adding to local array)
+            console.log('=== VERIFICATION AFTER SAVE ===');
+            schedule.courses.forEach((c, idx) => {
+                if (c.scheduleInfo && c.scheduleInfo.day) {
+                    console.log(`✓ Course ${idx + 1}: "${c.name}" -> Day ${c.scheduleInfo.day}`);
+                } else {
+                    console.error(`❌ Course ${idx + 1}: "${c.name}" -> MISSING scheduleInfo!`);
+                }
+            });
 
             // Add to local array
             this.schedules.push(schedule);
             this.currentSchedule = schedule;
-
-            // Final verification
-            console.log('=== FINAL VERIFICATION ===');
-            console.log('Current schedule weeklySchedule:', {
-                isArray: Array.isArray(this.currentSchedule.weeklySchedule),
-                length: this.currentSchedule.weeklySchedule.length
-            });
 
             return schedule;
         } catch (error) {
@@ -152,7 +115,7 @@ export class ScheduleManager {
      * Process courses - parse schedule strings and week ranges
      */
     processCourses(courses) {
-        console.log(`Processing ${courses.length} courses...`);
+        console.log(`=== PROCESSING ${courses.length} COURSES ===`);
         
         const processed = courses.map((course, index) => {
             const scheduleInfo = this.parseScheduleString(course.schedule);
@@ -161,23 +124,47 @@ export class ScheduleManager {
 
             const processedCourse = {
                 ...course,
-                scheduleInfo,
-                weekRanges,
-                color,
+                scheduleInfo: {
+                    day: scheduleInfo.day,
+                    periods: scheduleInfo.periods,
+                    room: scheduleInfo.room
+                }, // Ensure scheduleInfo is a plain object
+                weekRanges: weekRanges, // Ensure weekRanges is a plain array
+                color: color,
                 id: `course-${Date.now()}-${index}`
             };
 
-            // Log processing result
-            if (scheduleInfo.day) {
-                console.log(`Course "${course.name}": Day ${scheduleInfo.day}, Periods [${scheduleInfo.periods.join(',')}], Room ${scheduleInfo.room}`);
-            } else {
-                console.warn(`Course "${course.name}": Failed to parse schedule from "${course.schedule}"`);
+            // CRITICAL: Log processing result with full details
+            console.log(`Course ${index + 1}: "${course.name}"`);
+            console.log(`  - Original schedule string: "${course.schedule}"`);
+            console.log(`  - Parsed scheduleInfo:`, JSON.stringify(scheduleInfo));
+            console.log(`  - Day: ${scheduleInfo.day} (type: ${typeof scheduleInfo.day})`);
+            console.log(`  - Periods: [${scheduleInfo.periods.join(',')}] (length: ${scheduleInfo.periods.length})`);
+            console.log(`  - Room: "${scheduleInfo.room}"`);
+            console.log(`  - Processed course scheduleInfo:`, JSON.stringify(processedCourse.scheduleInfo));
+
+            if (!scheduleInfo.day) {
+                console.warn(`  ❌ WARNING: Course "${course.name}" has no day!`);
+            }
+            if (scheduleInfo.periods.length === 0) {
+                console.warn(`  ❌ WARNING: Course "${course.name}" has no periods!`);
             }
 
             return processedCourse;
         });
 
-        console.log(`Processed ${processed.length} courses`);
+        console.log(`=== PROCESSED ${processed.length} COURSES ===`);
+        
+        // Final verification
+        const coursesWithDay = processed.filter(c => c.scheduleInfo && c.scheduleInfo.day);
+        const coursesWithoutDay = processed.filter(c => !c.scheduleInfo || !c.scheduleInfo.day);
+        console.log(`- Courses with valid day: ${coursesWithDay.length}`);
+        console.log(`- Courses without day: ${coursesWithoutDay.length}`);
+        
+        if (coursesWithoutDay.length > 0) {
+            console.warn('Courses without day:', coursesWithoutDay.map(c => c.name));
+        }
+
         return processed;
     }
 
@@ -442,56 +429,48 @@ export class ScheduleManager {
             console.log('=== LOADING SCHEDULE FROM INDEXEDDB ===');
             const schedule = await this.storageManager.getItem('schedules', id);
             
-            // Debug: Check schedule structure after loading from IndexedDB
-            if (schedule && schedule.weeklySchedule) {
-                console.log('Loaded schedule from IndexedDB:', {
-                    id: schedule.id,
-                    name: schedule.name,
-                    weeklyScheduleType: Array.isArray(schedule.weeklySchedule) ? 'Array' : typeof schedule.weeklySchedule,
-                    weeklyScheduleLength: schedule.weeklySchedule.length
+            if (!schedule) {
+                console.error('Schedule not found');
+                return null;
+            }
+            
+            console.log('Loaded schedule:', {
+                id: schedule.id,
+                name: schedule.name,
+                coursesCount: schedule.courses?.length || 0
+            });
+            
+            // CRITICAL: Verify courses and scheduleInfo after loading from IndexedDB
+            if (schedule.courses && Array.isArray(schedule.courses)) {
+                console.log('=== VERIFYING COURSES AFTER LOAD ===');
+                let validCount = 0;
+                let invalidCount = 0;
+                
+                schedule.courses.forEach((course, idx) => {
+                    console.log(`Course ${idx + 1}: "${course.name}"`);
+                    console.log(`  - Has scheduleInfo:`, !!course.scheduleInfo);
+                    console.log(`  - scheduleInfo:`, course.scheduleInfo);
+                    console.log(`  - Day:`, course.scheduleInfo?.day, `(type: ${typeof course.scheduleInfo?.day})`);
+                    console.log(`  - Periods:`, course.scheduleInfo?.periods);
+                    
+                    if (course.scheduleInfo && course.scheduleInfo.day) {
+                        validCount++;
+                        console.log(`  ✓ Valid - Day ${course.scheduleInfo.day}, Periods [${course.scheduleInfo.periods.join(',')}]`);
+                    } else {
+                        invalidCount++;
+                        console.error(`  ❌ INVALID - Missing scheduleInfo or day!`);
+                    }
                 });
                 
-                // Verify structure and reconstruct if needed
-                let needsReconstruct = false;
-                if (!Array.isArray(schedule.weeklySchedule)) {
-                    console.error('ERROR: weeklySchedule is not an array!', schedule.weeklySchedule);
-                    needsReconstruct = true;
-                } else if (schedule.weeklySchedule.length !== 10) {
-                    console.error(`ERROR: weeklySchedule has ${schedule.weeklySchedule.length} periods, expected 10!`);
-                    needsReconstruct = true;
-                } else {
-                    schedule.weeklySchedule.forEach((period, pIdx) => {
-                        if (!Array.isArray(period)) {
-                            console.error(`ERROR: Period ${pIdx + 1} is not an array!`, period);
-                            needsReconstruct = true;
-                        } else if (period.length !== 6) {
-                            console.error(`ERROR: Period ${pIdx + 1} has ${period.length} days, expected 6!`);
-                            needsReconstruct = true;
-                        }
-                    });
-                }
+                console.log(`=== VERIFICATION SUMMARY ===`);
+                console.log(`- Valid courses: ${validCount}`);
+                console.log(`- Invalid courses: ${invalidCount}`);
                 
-                // Reconstruct if needed
-                if (needsReconstruct && schedule.courses && Array.isArray(schedule.courses)) {
-                    console.log('Reconstructing weeklySchedule from courses due to structure errors...');
-                    schedule.weeklySchedule = this.generateWeeklySchedule(schedule.courses);
-                    // Save the fixed schedule back
-                    await this.updateSchedule(schedule);
+                if (invalidCount > 0) {
+                    console.error('WARNING: Some courses lost their scheduleInfo during IndexedDB storage!');
                 }
-                
-                // Log distribution after load/reconstruct
-                console.log('=== COURSE DISTRIBUTION AFTER LOAD ===');
-                const dayCounts = [0, 0, 0, 0, 0, 0];
-                for (let p = 0; p < 10; p++) {
-                    for (let d = 0; d < 6; d++) {
-                        const count = schedule.weeklySchedule[p]?.[d]?.length || 0;
-                        if (count > 0) {
-                            dayCounts[d] += count;
-                            console.log(`Period ${p+1}, Thứ ${d+2}: ${count} course(s) - ${schedule.weeklySchedule[p][d].map(c => c.name).join(', ')}`);
-                        }
-                    }
-                }
-                console.log('Total courses per day:', dayCounts.map((count, idx) => `Thứ ${idx+2}: ${count}`).join(', '));
+            } else {
+                console.error('ERROR: No courses found in schedule!');
             }
             
             this.currentSchedule = schedule;
