@@ -36,6 +36,8 @@ export class ScheduleManager {
      */
     async createClassScheduleFromXLSX(file, scheduleName) {
         try {
+            console.log('=== STARTING SCHEDULE CREATION ===');
+            
             // Parse file
             const courses = await this.xlsxParser.parseClassScheduleFile(file);
             
@@ -43,11 +45,49 @@ export class ScheduleManager {
                 throw new Error('Không tìm thấy dữ liệu khóa học trong file.');
             }
 
+            console.log(`=== PARSED ${courses.length} COURSES FROM EXCEL ===`);
+            courses.forEach((c, idx) => {
+                console.log(`Course ${idx + 1}: "${c.name}" - Schedule: "${c.schedule}"`);
+            });
+
             // Process courses
             const processedCourses = this.processCourses(courses);
             
             // Generate weekly schedule
             const weeklySchedule = this.generateWeeklySchedule(processedCourses);
+            
+            // CRITICAL: Verify schedule structure BEFORE creating object
+            console.log('=== VERIFYING WEEKLY SCHEDULE STRUCTURE ===');
+            console.log('Schedule type:', Array.isArray(weeklySchedule) ? 'Array' : typeof weeklySchedule);
+            console.log('Schedule length:', weeklySchedule.length);
+            
+            if (!Array.isArray(weeklySchedule) || weeklySchedule.length !== 10) {
+                console.error('ERROR: Invalid schedule structure!', weeklySchedule);
+                throw new Error('Có lỗi khi tạo cấu trúc lịch học.');
+            }
+            
+            // Verify each period
+            for (let p = 0; p < 10; p++) {
+                const period = weeklySchedule[p];
+                if (!Array.isArray(period) || period.length !== 6) {
+                    console.error(`ERROR: Period ${p+1} invalid!`, period);
+                    throw new Error(`Có lỗi ở Period ${p+1}.`);
+                }
+            }
+            
+            // Log distribution of courses across days
+            console.log('=== COURSE DISTRIBUTION BY DAY ===');
+            const dayCounts = [0, 0, 0, 0, 0, 0]; // Thứ 2-7
+            for (let p = 0; p < 10; p++) {
+                for (let d = 0; d < 6; d++) {
+                    const count = weeklySchedule[p][d].length;
+                    if (count > 0) {
+                        dayCounts[d] += count;
+                        console.log(`Period ${p+1}, Thứ ${d+2}: ${count} course(s) - ${weeklySchedule[p][d].map(c => c.name).join(', ')}`);
+                    }
+                }
+            }
+            console.log('Total courses per day:', dayCounts.map((count, idx) => `Thứ ${idx+2}: ${count}`).join(', '));
             
             // Create schedule object
             const schedule = {
@@ -59,13 +99,32 @@ export class ScheduleManager {
                 updatedAt: new Date().toISOString()
             };
 
+            // Verify schedule object structure
+            console.log('=== SCHEDULE OBJECT STRUCTURE ===');
+            console.log('weeklySchedule in object:', {
+                isArray: Array.isArray(schedule.weeklySchedule),
+                length: schedule.weeklySchedule.length,
+                firstPeriodIsArray: Array.isArray(schedule.weeklySchedule[0]),
+                firstPeriodLength: schedule.weeklySchedule[0]?.length
+            });
+
             // Save to IndexedDB
             const id = await this.storageManager.addItem('schedules', schedule);
             schedule.id = id;
 
+            console.log('=== SCHEDULE SAVED TO INDEXEDDB ===');
+            console.log('Schedule ID:', id);
+
             // Add to local array
             this.schedules.push(schedule);
             this.currentSchedule = schedule;
+
+            // Final verification
+            console.log('=== FINAL VERIFICATION ===');
+            console.log('Current schedule weeklySchedule:', {
+                isArray: Array.isArray(this.currentSchedule.weeklySchedule),
+                length: this.currentSchedule.weeklySchedule.length
+            });
 
             return schedule;
         } catch (error) {
@@ -273,12 +332,32 @@ export class ScheduleManager {
                 if (periodIndex >= 0 && periodIndex < 10) {
                     // Debug: Log before adding
                     console.log(`Adding course "${course.name}" to Period ${period} (index ${periodIndex}), Day ${day} (index ${dayIndex})`);
-                    schedule[periodIndex][dayIndex].push(course);
+                    
+                    // CRITICAL: Verify array structure before push
+                    if (!Array.isArray(schedule[periodIndex])) {
+                        console.error(`ERROR: Period ${periodIndex} is not an array!`, schedule[periodIndex]);
+                        continue;
+                    }
+                    if (!Array.isArray(schedule[periodIndex][dayIndex])) {
+                        console.error(`ERROR: Period ${periodIndex}, Day ${dayIndex} is not an array!`, schedule[periodIndex][dayIndex]);
+                        continue;
+                    }
+                    
+                    // Push course - create a copy to avoid reference issues
+                    const courseCopy = { ...course };
+                    schedule[periodIndex][dayIndex].push(courseCopy);
                     processedCount++;
                     
                     // Debug: Verify after adding
                     const verifyCount = schedule[periodIndex][dayIndex].length;
-                    console.log(`  -> Verified: Period ${periodIndex}, Day ${dayIndex} now has ${verifyCount} course(s)`);
+                    const verifyNames = schedule[periodIndex][dayIndex].map(c => c.name).join(', ');
+                    console.log(`  -> Verified: Period ${periodIndex}, Day ${dayIndex} now has ${verifyCount} course(s): ${verifyNames}`);
+                    
+                    // Double check: verify the course is actually in the array
+                    const found = schedule[periodIndex][dayIndex].find(c => c.name === course.name);
+                    if (!found) {
+                        console.error(`ERROR: Course "${course.name}" was not found after push!`);
+                    }
                 } else {
                     console.warn(`Course "${course.name}" has invalid period: ${period}`);
                 }
@@ -318,35 +397,59 @@ export class ScheduleManager {
      */
     async getSchedule(id) {
         try {
+            console.log('=== LOADING SCHEDULE FROM INDEXEDDB ===');
             const schedule = await this.storageManager.getItem('schedules', id);
             
             // Debug: Check schedule structure after loading from IndexedDB
             if (schedule && schedule.weeklySchedule) {
                 console.log('Loaded schedule from IndexedDB:', {
+                    id: schedule.id,
                     name: schedule.name,
                     weeklyScheduleType: Array.isArray(schedule.weeklySchedule) ? 'Array' : typeof schedule.weeklySchedule,
-                    weeklyScheduleLength: schedule.weeklySchedule.length,
-                    firstPeriodType: Array.isArray(schedule.weeklySchedule[0]) ? 'Array' : typeof schedule.weeklySchedule[0],
-                    firstPeriodLength: schedule.weeklySchedule[0]?.length,
-                    sampleData: schedule.weeklySchedule[0]?.[0] ? 
-                        `Period 1, Day 1 has ${schedule.weeklySchedule[0][0].length} course(s)` : 
-                        'Period 1, Day 1 is empty'
+                    weeklyScheduleLength: schedule.weeklySchedule.length
                 });
                 
-                // Verify structure
+                // Verify structure and reconstruct if needed
+                let needsReconstruct = false;
                 if (!Array.isArray(schedule.weeklySchedule)) {
                     console.error('ERROR: weeklySchedule is not an array!', schedule.weeklySchedule);
+                    needsReconstruct = true;
                 } else if (schedule.weeklySchedule.length !== 10) {
                     console.error(`ERROR: weeklySchedule has ${schedule.weeklySchedule.length} periods, expected 10!`);
+                    needsReconstruct = true;
                 } else {
                     schedule.weeklySchedule.forEach((period, pIdx) => {
                         if (!Array.isArray(period)) {
                             console.error(`ERROR: Period ${pIdx + 1} is not an array!`, period);
+                            needsReconstruct = true;
                         } else if (period.length !== 6) {
                             console.error(`ERROR: Period ${pIdx + 1} has ${period.length} days, expected 6!`);
+                            needsReconstruct = true;
                         }
                     });
                 }
+                
+                // Reconstruct if needed
+                if (needsReconstruct && schedule.courses && Array.isArray(schedule.courses)) {
+                    console.log('Reconstructing weeklySchedule from courses due to structure errors...');
+                    schedule.weeklySchedule = this.generateWeeklySchedule(schedule.courses);
+                    // Save the fixed schedule back
+                    await this.updateSchedule(schedule);
+                }
+                
+                // Log distribution after load/reconstruct
+                console.log('=== COURSE DISTRIBUTION AFTER LOAD ===');
+                const dayCounts = [0, 0, 0, 0, 0, 0];
+                for (let p = 0; p < 10; p++) {
+                    for (let d = 0; d < 6; d++) {
+                        const count = schedule.weeklySchedule[p]?.[d]?.length || 0;
+                        if (count > 0) {
+                            dayCounts[d] += count;
+                            console.log(`Period ${p+1}, Thứ ${d+2}: ${count} course(s) - ${schedule.weeklySchedule[p][d].map(c => c.name).join(', ')}`);
+                        }
+                    }
+                }
+                console.log('Total courses per day:', dayCounts.map((count, idx) => `Thứ ${idx+2}: ${count}`).join(', '));
             }
             
             this.currentSchedule = schedule;

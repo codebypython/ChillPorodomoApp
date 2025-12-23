@@ -83,18 +83,42 @@ export class ScheduleRenderer {
         const weeklySchedule = schedule.weeklySchedule;
         const days = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
         
-        // Debug: Log schedule structure before rendering
-        console.log('Rendering weekly schedule:', {
-            scheduleName: schedule.name,
-            weeklyScheduleLength: weeklySchedule.length,
-            weeklyScheduleStructure: weeklySchedule.map((period, idx) => ({
-                period: idx + 1,
-                days: period.map((day, dayIdx) => ({
-                    day: dayIdx + 2,
-                    courseCount: day ? day.length : 0
-                }))
-            }))
-        });
+        // CRITICAL: Debug - Log schedule structure before rendering
+        console.log('=== RENDERING WEEKLY SCHEDULE ===');
+        console.log('Schedule name:', schedule.name);
+        console.log('weeklySchedule type:', Array.isArray(weeklySchedule) ? 'Array' : typeof weeklySchedule);
+        console.log('weeklySchedule length:', weeklySchedule.length);
+        
+        if (!Array.isArray(weeklySchedule)) {
+            console.error('ERROR: weeklySchedule is not an array!', weeklySchedule);
+            return;
+        }
+        
+        if (weeklySchedule.length !== 10) {
+            console.error(`ERROR: weeklySchedule has ${weeklySchedule.length} periods, expected 10!`);
+            return;
+        }
+        
+        // Log detailed structure
+        console.log('=== WEEKLY SCHEDULE STRUCTURE ===');
+        for (let p = 0; p < 10; p++) {
+            const period = weeklySchedule[p];
+            if (!Array.isArray(period)) {
+                console.error(`ERROR: Period ${p+1} is not an array!`, period);
+                continue;
+            }
+            if (period.length !== 6) {
+                console.error(`ERROR: Period ${p+1} has ${period.length} days, expected 6!`);
+                continue;
+            }
+            
+            for (let d = 0; d < 6; d++) {
+                const courses = period[d];
+                if (courses && courses.length > 0) {
+                    console.log(`Period ${p+1}, Thứ ${d+2}: ${courses.length} course(s) - ${courses.map(c => c.name).join(', ')}`);
+                }
+            }
+        }
         
         let html = `
             <div class="schedule-table-wrapper">
@@ -131,7 +155,7 @@ export class ScheduleRenderer {
             // - periodIndex: 0-9 (periods 1-10)
             // - dayIndex: 0-5 (Thứ 2-7)
             for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
-                // Ensure we access the correct array structure
+                // CRITICAL: Ensure we access the correct array structure
                 const periodData = weeklySchedule[periodIndex];
                 
                 if (!periodData) {
@@ -140,16 +164,28 @@ export class ScheduleRenderer {
                     continue;
                 }
                 
+                if (!Array.isArray(periodData)) {
+                    console.error(`ERROR: Period ${periodIndex} data is not an array!`, periodData);
+                    html += `<td class="schedule-cell" data-period="${period}" data-day="${dayIndex + 2}"></td>`;
+                    continue;
+                }
+                
+                if (dayIndex >= periodData.length) {
+                    console.error(`ERROR: Day index ${dayIndex} out of bounds for period ${periodIndex}!`);
+                    html += `<td class="schedule-cell" data-period="${period}" data-day="${dayIndex + 2}"></td>`;
+                    continue;
+                }
+                
                 const courses = periodData[dayIndex] || [];
                 
                 // Debug: Log if courses found
                 if (courses.length > 0) {
-                    console.log(`Rendering Period ${period}, Day ${dayIndex + 2}: ${courses.length} course(s) - ${courses.map(c => c.name).join(', ')}`);
+                    console.log(`✓ Rendering Period ${period} (index ${periodIndex}), Thứ ${dayIndex + 2} (index ${dayIndex}): ${courses.length} course(s) - ${courses.map(c => c.name).join(', ')}`);
                 }
                 
                 html += `<td class="schedule-cell" data-period="${period}" data-day="${dayIndex + 2}">`;
                 
-                if (courses && courses.length > 0) {
+                if (courses && Array.isArray(courses) && courses.length > 0) {
                     courses.forEach(course => {
                         html += this.renderCourseCell(course, period);
                     });

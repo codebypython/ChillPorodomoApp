@@ -362,13 +362,33 @@ class ChillPomodoroApp {
             // Create schedule
             const schedule = await this.scheduleManager.createClassScheduleFromXLSX(file, scheduleName);
 
+            console.log('=== IN handleScheduleUpload - BEFORE RENDER ===');
+            console.log('Schedule object:', {
+                id: schedule.id,
+                name: schedule.name,
+                weeklyScheduleType: Array.isArray(schedule.weeklySchedule) ? 'Array' : typeof schedule.weeklySchedule,
+                weeklyScheduleLength: schedule.weeklySchedule?.length
+            });
+
+            // CRITICAL: Verify schedule structure before rendering
+            if (!schedule.weeklySchedule || !Array.isArray(schedule.weeklySchedule)) {
+                console.error('ERROR: weeklySchedule is invalid!', schedule.weeklySchedule);
+                throw new Error('Cấu trúc lịch học không hợp lệ.');
+            }
+
             // Show success
             this.showNotification('Tạo lịch học thành công!', 'success');
 
             // Render schedule list
             await this.renderSchedules();
 
-            // Auto show the schedule
+            // Auto show the schedule - USE THE SCHEDULE OBJECT DIRECTLY (not from DB)
+            console.log('=== RENDERING SCHEDULE ===');
+            console.log('Using schedule object with weeklySchedule:', {
+                length: schedule.weeklySchedule.length,
+                firstPeriodLength: schedule.weeklySchedule[0]?.length
+            });
+            
             this.scheduleManager.currentSchedule = schedule;
             this.scheduleRenderer.renderWeeklySchedule(scheduleTableContainer, schedule);
         } catch (error) {
