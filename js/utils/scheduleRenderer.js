@@ -237,11 +237,42 @@ export class ScheduleRenderer {
                 const count = scheduleMap[p][d]?.length || 0;
                 if (count > 0) {
                     dayTotals[d - 2] += count;
-                    console.log(`✓ Period ${p}, Thứ ${d}: ${count} course(s)`);
+                    const courseNames = scheduleMap[p][d].map(c => c.name).join(', ');
+                    console.log(`✓ Period ${p}, Thứ ${d}: ${count} course(s) - ${courseNames}`);
                 }
             }
         }
         console.log('Total courses per day:', dayTotals.map((c, i) => `Thứ ${i+2}: ${c}`).join(', '));
+        
+        // CRITICAL: Verify no courses are in wrong positions
+        console.log('=== VERIFICATION: Checking for misplaced courses ===');
+        let misplacedCount = 0;
+        for (let p = 1; p <= 10; p++) {
+            for (let d = 2; d <= 7; d++) {
+                const courses = scheduleMap[p][d] || [];
+                courses.forEach(course => {
+                    // Check if course should be in this position
+                    if (course.scheduleInfo && Array.isArray(course.scheduleInfo)) {
+                        const shouldBeHere = course.scheduleInfo.some(entry => {
+                            const entryDay = Number(entry.day);
+                            const entryPeriods = Array.isArray(entry.periods) ? entry.periods : [];
+                            return entryDay === d && entryPeriods.includes(p);
+                        });
+                        
+                        if (!shouldBeHere) {
+                            misplacedCount++;
+                            console.error(`[CRITICAL ERROR] Course "${course.name}" is in scheduleMap[${p}][${d}] but should NOT be there!`);
+                            console.error(`  Course scheduleInfo:`, course.scheduleInfo);
+                        }
+                    }
+                });
+            }
+        }
+        if (misplacedCount === 0) {
+            console.log('✅ All courses are in correct positions');
+        } else {
+            console.error(`❌ Found ${misplacedCount} misplaced courses!`);
+        }
         
         // Render each period
         for (let period = 1; period <= 10; period++) {
