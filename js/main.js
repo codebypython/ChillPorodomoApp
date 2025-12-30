@@ -617,6 +617,21 @@ class ChillPomodoroApp {
      * Setup create daily schedule form handlers
      */
     setupCreateDailyScheduleForm(targetDate) {
+        console.log('=== setupCreateDailyScheduleForm called ===');
+        console.log('Target date:', targetDate);
+        
+        // Wait a bit for DOM to be ready
+        setTimeout(() => {
+            this.setupFormHandlers(targetDate);
+        }, 100);
+    }
+
+    /**
+     * Setup form handlers (internal)
+     */
+    setupFormHandlers(targetDate) {
+        console.log('Setting up form handlers...');
+        
         // Expand/collapse course details
         document.querySelectorAll('.expand-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -677,20 +692,51 @@ class ChillPomodoroApp {
 
         // Create schedule
         const createBtn = document.getElementById('createScheduleBtn');
+        console.log('Looking for createScheduleBtn:', createBtn);
+        
         if (createBtn) {
-            createBtn.addEventListener('click', async (e) => {
+            // Remove existing listeners to avoid duplicates
+            const newBtn = createBtn.cloneNode(true);
+            createBtn.parentNode.replaceChild(newBtn, createBtn);
+            
+            newBtn.addEventListener('click', async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                console.log('Create schedule button clicked');
+                console.log('=== Create schedule button clicked ===');
+                console.log('Target date:', targetDate);
+                console.log('ScheduleValidator available:', !!this.scheduleValidator);
+                
+                // Disable button to prevent double-click
+                newBtn.disabled = true;
+                newBtn.textContent = '⏳ Đang tạo...';
+                
                 try {
+                    if (!this.scheduleValidator) {
+                        throw new Error('ScheduleValidator chưa được khởi tạo');
+                    }
+                    
                     await this.createDailySchedule(targetDate);
+                    
+                    // Re-enable button
+                    newBtn.disabled = false;
+                    newBtn.innerHTML = '✅ Tạo Lịch';
                 } catch (error) {
                     console.error('Error in createDailySchedule:', error);
-                    this.showNotification('Lỗi khi tạo lịch: ' + error.message, 'danger');
+                    console.error('Error stack:', error.stack);
+                    
+                    // Re-enable button on error
+                    newBtn.disabled = false;
+                    newBtn.innerHTML = '✅ Tạo Lịch';
+                    
+                    this.showNotification('Lỗi khi tạo lịch: ' + (error.message || 'Lỗi không xác định'), 'danger');
                 }
             });
+            
+            console.log('Event listener attached to createScheduleBtn');
         } else {
             console.error('createScheduleBtn not found!');
+            console.error('Available buttons:', document.querySelectorAll('button').length);
+            console.error('Container HTML:', document.getElementById('dailyScheduleContainer')?.innerHTML?.substring(0, 500));
         }
     }
 
