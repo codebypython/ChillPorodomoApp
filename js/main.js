@@ -477,6 +477,567 @@ class ChillPomodoroApp {
     }
 
     /**
+     * Switch between schedule types
+     */
+    switchScheduleType(type) {
+        const classActions = document.getElementById('classScheduleActions');
+        const dailyActions = document.getElementById('dailyScheduleActions');
+        const scheduleList = document.getElementById('scheduleList');
+        const dailyScheduleList = document.getElementById('dailyScheduleList');
+        const scheduleTableContainer = document.getElementById('scheduleTableContainer');
+        const dailyScheduleContainer = document.getElementById('dailyScheduleContainer');
+
+        if (type === 'class') {
+            if (classActions) classActions.style.display = 'flex';
+            if (dailyActions) dailyActions.style.display = 'none';
+            if (scheduleList) scheduleList.style.display = 'grid';
+            if (dailyScheduleList) dailyScheduleList.style.display = 'none';
+            if (scheduleTableContainer) scheduleTableContainer.style.display = 'none';
+            if (dailyScheduleContainer) dailyScheduleContainer.style.display = 'none';
+            this.renderSchedules();
+        } else if (type === 'life') {
+            if (classActions) classActions.style.display = 'none';
+            if (dailyActions) dailyActions.style.display = 'flex';
+            if (scheduleList) scheduleList.style.display = 'none';
+            if (dailyScheduleList) dailyScheduleList.style.display = 'grid';
+            if (scheduleTableContainer) scheduleTableContainer.style.display = 'none';
+            if (dailyScheduleContainer) dailyScheduleContainer.style.display = 'none';
+            this.renderDailySchedules();
+        }
+    }
+
+    /**
+     * Render daily schedules list
+     */
+    async renderDailySchedules() {
+        const dailyScheduleList = document.getElementById('dailyScheduleList');
+        if (!dailyScheduleList) return;
+
+        try {
+            const schedules = await this.dailyActivityManager.getAllDailyActivitySchedules();
+
+            if (!schedules || schedules.length === 0) {
+                this.dailyScheduleRenderer.showEmpty(dailyScheduleList, 'Chưa có lịch sinh hoạt nào');
+                return;
+            }
+
+            dailyScheduleList.innerHTML = schedules.map(schedule => {
+                const date = this.dailyActivityManager.parseDate(schedule.date);
+                const dayOfWeek = this.dailyScheduleRenderer.getDayOfWeekName(date);
+                const completionRate = schedule.totalActivities > 0 
+                    ? Math.round((schedule.completedActivities / schedule.totalActivities) * 100) 
+                    : 0;
+
+                return `
+                    <div class="schedule-card daily-schedule-card" data-id="${schedule.id}">
+                        <div class="schedule-card-header">
+                            <h3 class="schedule-card-title">${dayOfWeek}, ${this.dailyScheduleRenderer.formatDateDisplay(date)}</h3>
+                            <span class="schedule-card-type">🏠 Lịch Sinh Hoạt</span>
+                        </div>
+                        <div class="schedule-card-body">
+                            <div class="schedule-card-info">
+                                <span class="schedule-info-item">
+                                    <span class="info-icon">✅</span>
+                                    ${schedule.completedActivities}/${schedule.totalActivities} hoàn thành (${completionRate}%)
+                                </span>
+                                <span class="schedule-info-item">
+                                    <span class="info-icon">📚</span>
+                                    ${schedule.totalStudyTime} phút học
+                                </span>
+                                ${schedule.hasClassToday ? 
+                                    '<span class="schedule-info-item"><span class="info-icon">📖</span>Có lớp học</span>' : 
+                                    '<span class="schedule-info-item"><span class="info-icon">✨</span>Không có lớp</span>'
+                                }
+                            </div>
+                        </div>
+                        <div class="schedule-card-actions">
+                            <button class="schedule-card-btn view" data-id="${schedule.id}">
+                                👁️ Xem
+                            </button>
+                            <button class="schedule-card-btn delete" data-id="${schedule.id}">
+                                🗑️ Xóa
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Add event listeners
+            dailyScheduleList.querySelectorAll('.schedule-card-btn.view').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = parseInt(btn.dataset.id);
+                    const schedule = schedules.find(s => s.id === id);
+                    if (schedule) {
+                        const container = document.getElementById('dailyScheduleContainer');
+                        this.dailyScheduleRenderer.renderDailySchedule(container, schedule);
+                        if (container) container.style.display = 'block';
+                        this.setupDailyScheduleActions(schedule);
+                    }
+                });
+            });
+
+            dailyScheduleList.querySelectorAll('.schedule-card-btn.delete').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    if (confirm('Bạn có chắc muốn xóa lịch sinh hoạt này?')) {
+                        const id = parseInt(btn.dataset.id);
+                        await this.dailyActivityManager.deleteDailyActivitySchedule(id);
+                        await this.renderDailySchedules();
+                        this.showNotification('Đã xóa lịch sinh hoạt', 'success');
+                    }
+                });
+            });
+        } catch (error) {
+            console.error('Error rendering daily schedules:', error);
+            this.dailyScheduleRenderer.showEmpty(dailyScheduleList, 'Lỗi khi tải lịch sinh hoạt');
+        }
+    }
+
+    /**
+     * Show create daily schedule form
+     */
+    async showCreateDailyScheduleForm() {
+        const container = document.getElementById('dailyScheduleContainer');
+        if (!container) return;
+
+        // Default to tomorrow (22h tối hôm nay tạo cho ngày mai)
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0, 0, 0, 0);
+
+        this.dailyScheduleRenderer.renderCreateForm(container, tomorrow);
+        container.style.display = 'block';
+
+        this.setupCreateDailyScheduleForm(tomorrow);
+    }
+
+    /**
+     * Setup create daily schedule form handlers
+     */
+    setupCreateDailyScheduleForm(targetDate) {
+        // Expand/collapse course details
+        document.querySelectorAll('.expand-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const courseId = btn.dataset.courseId;
+                const details = document.querySelector(`.course-details[data-course-id="${courseId}"]`);
+                if (details) {
+                    const isHidden = details.style.display === 'none';
+                    details.style.display = isHidden ? 'block' : 'none';
+                    const icon = btn.querySelector('.expand-icon');
+                    if (icon) icon.textContent = isHidden ? '▲' : '▼';
+                }
+            });
+        });
+
+        // Expand/collapse activity details
+        document.querySelectorAll('.activity-select-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', () => {
+                const activityId = checkbox.dataset.activityId;
+                const details = document.querySelector(`.activity-details[data-activity-id="${activityId}"]`);
+                if (details) {
+                    details.style.display = checkbox.checked ? 'block' : 'none';
+                }
+            });
+        });
+
+        // Add custom course
+        const addCustomCourseBtn = document.getElementById('addCustomCourseBtn');
+        if (addCustomCourseBtn) {
+            addCustomCourseBtn.addEventListener('click', () => {
+                this.addCustomCourse();
+            });
+        }
+
+        // Add custom activity
+        const addActivityBtn = document.getElementById('addActivityBtn');
+        if (addActivityBtn) {
+            addActivityBtn.addEventListener('click', () => {
+                this.addCustomActivity();
+            });
+        }
+
+        // Cancel
+        const cancelBtn = document.getElementById('cancelScheduleBtn');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                const container = document.getElementById('dailyScheduleContainer');
+                if (container) container.style.display = 'none';
+            });
+        }
+
+        // Save draft (TODO: implement)
+        const saveDraftBtn = document.getElementById('saveDraftBtn');
+        if (saveDraftBtn) {
+            saveDraftBtn.addEventListener('click', () => {
+                this.showNotification('Tính năng lưu nháp sẽ sớm có mặt', 'info');
+            });
+        }
+
+        // Create schedule
+        const createBtn = document.getElementById('createScheduleBtn');
+        if (createBtn) {
+            createBtn.addEventListener('click', async () => {
+                await this.createDailySchedule(targetDate);
+            });
+        }
+    }
+
+    /**
+     * Create daily schedule from form
+     */
+    async createDailySchedule(targetDate) {
+        try {
+            const activities = [];
+            let activityIdCounter = 1;
+
+            // Collect course activities
+            document.querySelectorAll('.course-select-checkbox:checked').forEach(checkbox => {
+                const courseId = checkbox.dataset.courseId;
+                const courseItem = checkbox.closest('.course-selection-item');
+                if (!courseItem) return;
+                
+                const topicInput = courseItem.querySelector('.course-topic-input');
+                const contentInput = courseItem.querySelector('.course-content-input');
+                const prioritySelect = courseItem.querySelector('.course-priority-select');
+                const durationInput = courseItem.querySelector('.course-duration-input');
+                const timeSlotSelect = courseItem.querySelector('.course-timeslot-select');
+                const courseNameEl = courseItem.querySelector('.course-name');
+                
+                const topic = topicInput?.value || '';
+                const content = contentInput?.value || '';
+                const priority = prioritySelect?.value || 'medium';
+                const duration = parseInt(durationInput?.value || 60);
+                const timeSlot = timeSlotSelect?.value || 'auto';
+                const courseName = courseNameEl?.textContent || 'Môn học';
+
+                activities.push({
+                    id: `activity-${activityIdCounter++}`,
+                    type: 'study',
+                    courseId: courseId,
+                    courseName: courseName,
+                    topic: topic,
+                    content: content,
+                    priority: priority,
+                    estimatedDuration: duration,
+                    timeSlot: timeSlot === 'auto' ? null : timeSlot,
+                    status: 'planned'
+                });
+            });
+
+            // Collect other activities
+            document.querySelectorAll('.activity-select-checkbox:checked').forEach(checkbox => {
+                const activityId = checkbox.dataset.activityId;
+                const activityItem = checkbox.closest('.other-activity-item');
+                if (!activityItem) return;
+                
+                const durationInput = activityItem.querySelector('.activity-duration-input');
+                const timeSlotSelect = activityItem.querySelector('.activity-timeslot-select');
+                const activityNameEl = activityItem.querySelector('.activity-name');
+                
+                const duration = parseInt(durationInput?.value || 30);
+                const timeSlot = timeSlotSelect?.value || 'auto';
+                const activityName = activityNameEl?.textContent || 'Hoạt động';
+                const activityType = activityItem.dataset.activityId || 'personal';
+
+                activities.push({
+                    id: `activity-${activityIdCounter++}`,
+                    type: activityType,
+                    name: activityName,
+                    priority: 'medium',
+                    estimatedDuration: duration,
+                    timeSlot: timeSlot === 'auto' ? null : timeSlot,
+                    status: 'planned'
+                });
+            });
+
+            if (activities.length === 0) {
+                this.showNotification('Vui lòng chọn ít nhất một hoạt động', 'warning');
+                return;
+            }
+
+            const notesEl = document.getElementById('scheduleNotes');
+            const notes = notesEl?.value || '';
+
+            // Schedule activities using ActivityScheduler
+            const timeSlots = this.dailyActivityManager.calculateTimeSlots(targetDate);
+            
+            // Separate activities by time slot
+            const morningActivities = activities.filter(a => 
+                a.timeSlot === 'morning' || (!a.timeSlot && a.type === 'exercise')
+            );
+            const afternoonActivities = activities.filter(a => 
+                a.timeSlot === 'afternoon' || (!a.timeSlot && a.type !== 'exercise')
+            );
+
+            // Schedule morning activities
+            const scheduledMorning = this.activityScheduler.scheduleActivities(
+                morningActivities,
+                timeSlots.morningSlot
+            );
+
+            // Schedule afternoon activities
+            const scheduledAfternoon = this.activityScheduler.scheduleActivities(
+                afternoonActivities,
+                timeSlots.afternoonSlot
+            );
+
+            // Combine all scheduled activities
+            const allScheduledActivities = [...scheduledMorning, ...scheduledAfternoon];
+
+            // Create schedule
+            const schedule = await this.dailyActivityManager.createDailyActivitySchedule(
+                targetDate,
+                allScheduledActivities,
+                notes
+            );
+
+            this.showNotification('Đã tạo lịch sinh hoạt thành công!', 'success');
+            
+            // Render the created schedule
+            const container = document.getElementById('dailyScheduleContainer');
+            if (container) {
+                this.dailyScheduleRenderer.renderDailySchedule(container, schedule);
+                this.setupDailyScheduleActions(schedule);
+            }
+            
+            // Refresh list
+            await this.renderDailySchedules();
+
+        } catch (error) {
+            console.error('Error creating daily schedule:', error);
+            this.showNotification(error.message || 'Không thể tạo lịch sinh hoạt', 'danger');
+        }
+    }
+
+    /**
+     * Setup daily schedule actions
+     */
+    setupDailyScheduleActions(schedule) {
+        // Activity completion buttons
+        document.querySelectorAll('.activity-btn.complete').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const activityId = btn.dataset.activityId;
+                try {
+                    await this.dailyActivityManager.updateActivityStatus(schedule.id, activityId, 'completed');
+                    const updated = await this.dailyActivityManager.getDailyActivitySchedule(
+                        this.dailyActivityManager.parseDate(schedule.date)
+                    );
+                    if (updated) {
+                        const container = document.getElementById('dailyScheduleContainer');
+                        if (container) {
+                            this.dailyScheduleRenderer.renderDailySchedule(container, updated);
+                            this.setupDailyScheduleActions(updated);
+                            await this.renderDailySchedules();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error updating activity status:', error);
+                    this.showNotification('Không thể cập nhật trạng thái', 'danger');
+                }
+            });
+        });
+
+        document.querySelectorAll('.activity-btn.skip').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const activityId = btn.dataset.activityId;
+                try {
+                    await this.dailyActivityManager.updateActivityStatus(schedule.id, activityId, 'skipped');
+                    const updated = await this.dailyActivityManager.getDailyActivitySchedule(
+                        this.dailyActivityManager.parseDate(schedule.date)
+                    );
+                    if (updated) {
+                        const container = document.getElementById('dailyScheduleContainer');
+                        if (container) {
+                            this.dailyScheduleRenderer.renderDailySchedule(container, updated);
+                            this.setupDailyScheduleActions(updated);
+                            await this.renderDailySchedules();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error updating activity status:', error);
+                    this.showNotification('Không thể cập nhật trạng thái', 'danger');
+                }
+            });
+        });
+
+        // Edit and delete buttons
+        const editBtn = document.getElementById('editScheduleBtn');
+        if (editBtn) {
+            editBtn.addEventListener('click', () => {
+                this.showNotification('Tính năng chỉnh sửa sẽ sớm có mặt', 'info');
+            });
+        }
+
+        const deleteBtn = document.getElementById('deleteScheduleBtn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', async () => {
+                if (confirm('Bạn có chắc muốn xóa lịch sinh hoạt này?')) {
+                    try {
+                        await this.dailyActivityManager.deleteDailyActivitySchedule(schedule.id);
+                        const container = document.getElementById('dailyScheduleContainer');
+                        if (container) container.style.display = 'none';
+                        await this.renderDailySchedules();
+                        this.showNotification('Đã xóa lịch sinh hoạt', 'success');
+                    } catch (error) {
+                        console.error('Error deleting schedule:', error);
+                        this.showNotification('Không thể xóa lịch sinh hoạt', 'danger');
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * View today's schedule
+     */
+    async viewTodaySchedule() {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        try {
+            const schedule = await this.dailyActivityManager.getDailyActivitySchedule(today);
+            const container = document.getElementById('dailyScheduleContainer');
+            
+            if (schedule) {
+                this.dailyScheduleRenderer.renderDailySchedule(container, schedule);
+                if (container) container.style.display = 'block';
+                this.setupDailyScheduleActions(schedule);
+            } else {
+                this.dailyScheduleRenderer.showEmpty(container, 'Chưa có lịch sinh hoạt cho hôm nay');
+                if (container) container.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Error viewing today schedule:', error);
+            this.showNotification('Không thể tải lịch hôm nay', 'danger');
+        }
+    }
+
+    /**
+     * Add custom course
+     */
+    addCustomCourse() {
+        const courseName = prompt('Nhập tên môn học:');
+        if (!courseName) return;
+
+        const list = document.getElementById('courseSelectionList');
+        if (!list) return;
+
+        const courseId = `custom-${Date.now()}`;
+        const newItem = document.createElement('div');
+        newItem.className = 'course-selection-item custom-course';
+        newItem.innerHTML = `
+            <div class="course-selection-header">
+                <label class="course-checkbox">
+                    <input type="checkbox" class="course-select-checkbox" data-course-id="${courseId}">
+                    <span class="course-name">${courseName}</span>
+                </label>
+                <button class="expand-btn" data-course-id="${courseId}">
+                    <span class="expand-icon">▼</span>
+                </button>
+            </div>
+            <div class="course-details" data-course-id="${courseId}" style="display: none;">
+                <div class="course-inputs">
+                    <div class="input-group">
+                        <label>Chủ đề:</label>
+                        <input type="text" class="course-topic-input" placeholder="VD: Design Patterns, OOP, ...">
+                    </div>
+                    <div class="input-group">
+                        <label>Nội dung chính:</label>
+                        <textarea class="course-content-input" placeholder="Mỗi dòng là một nội dung cần làm"></textarea>
+                    </div>
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label>Ưu tiên:</label>
+                            <select class="course-priority-select">
+                                <option value="high">🔴 Cao</option>
+                                <option value="medium" selected>🟡 Trung bình</option>
+                                <option value="low">🟢 Thấp</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Thời gian (phút):</label>
+                            <input type="number" class="course-duration-input" value="60" min="15" step="15">
+                        </div>
+                        <div class="input-group">
+                            <label>Khung giờ:</label>
+                            <select class="course-timeslot-select">
+                                <option value="auto">Tự động</option>
+                                <option value="morning">Buổi sáng</option>
+                                <option value="afternoon">Buổi chiều/tối</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        list.appendChild(newItem);
+        
+        // Setup expand button
+        const expandBtn = newItem.querySelector('.expand-btn');
+        if (expandBtn) {
+            expandBtn.addEventListener('click', () => {
+                const details = newItem.querySelector('.course-details');
+                if (details) {
+                    const isHidden = details.style.display === 'none';
+                    details.style.display = isHidden ? 'block' : 'none';
+                    const icon = expandBtn.querySelector('.expand-icon');
+                    if (icon) icon.textContent = isHidden ? '▲' : '▼';
+                }
+            });
+        }
+    }
+
+    /**
+     * Add custom activity
+     */
+    addCustomActivity() {
+        const activityName = prompt('Nhập tên hoạt động:');
+        if (!activityName) return;
+
+        const list = document.getElementById('otherActivitiesList');
+        if (!list) return;
+
+        const activityId = `custom-${Date.now()}`;
+        const newItem = document.createElement('div');
+        newItem.className = 'other-activity-item custom-activity';
+        newItem.dataset.activityId = activityId;
+        newItem.innerHTML = `
+            <label class="activity-checkbox">
+                <input type="checkbox" class="activity-select-checkbox" data-activity-id="${activityId}">
+                <span class="activity-icon">📝</span>
+                <span class="activity-name">${activityName}</span>
+            </label>
+            <div class="activity-details" data-activity-id="${activityId}" style="display: none;">
+                <div class="input-row">
+                    <div class="input-group">
+                        <label>Thời gian (phút):</label>
+                        <input type="number" class="activity-duration-input" value="30" min="15" step="15">
+                    </div>
+                    <div class="input-group">
+                        <label>Khung giờ:</label>
+                        <select class="activity-timeslot-select">
+                            <option value="auto">Tự động</option>
+                            <option value="morning">Buổi sáng</option>
+                            <option value="afternoon">Buổi chiều/tối</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        `;
+        list.appendChild(newItem);
+        
+        // Setup checkbox
+        const checkbox = newItem.querySelector('.activity-select-checkbox');
+        if (checkbox) {
+            checkbox.addEventListener('change', () => {
+                const details = newItem.querySelector('.activity-details');
+                if (details) {
+                    details.style.display = checkbox.checked ? 'block' : 'none';
+                }
+            });
+        }
+    }
+
+    /**
      * Setup header dropdown menus
      */
     setupHeaderDropdowns() {
@@ -658,6 +1219,11 @@ class ChillPomodoroApp {
 
         // Render schedules
         this.renderSchedules();
+        
+        // Initialize daily schedule type if needed
+        if (this.currentScheduleType === 'life') {
+            this.renderDailySchedules();
+        }
 
         // Switch to default tab
         this.switchTab('timer');
