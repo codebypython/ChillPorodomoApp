@@ -16,6 +16,7 @@ import { ScheduleRenderer } from './utils/scheduleRenderer.js';
 import { DailyActivityManager } from './classes/DailyActivityManager.js';
 import { DailyScheduleRenderer } from './utils/DailyScheduleRenderer.js';
 import { ActivityScheduler } from './utils/ActivityScheduler.js';
+import { ScheduleValidator } from './utils/ScheduleValidator.js';
 
 class ChillPomodoroApp {
     constructor() {
@@ -30,6 +31,7 @@ class ChillPomodoroApp {
         this.dailyActivityManager = null;
         this.dailyScheduleRenderer = null;
         this.activityScheduler = null;
+        this.scheduleValidator = null;
         this.currentTab = 'timer';
         this.currentScheduleType = 'class'; // 'class' or 'life'
     }
@@ -65,6 +67,7 @@ class ChillPomodoroApp {
             this.scheduleRenderer = new ScheduleRenderer(this.scheduleManager);
             
             this.activityScheduler = new ActivityScheduler();
+            this.scheduleValidator = new ScheduleValidator();
             this.dailyActivityManager = new DailyActivityManager(this.scheduleManager);
             this.dailyScheduleRenderer = new DailyScheduleRenderer(this.dailyActivityManager, this.activityScheduler);
 
@@ -675,9 +678,19 @@ class ChillPomodoroApp {
         // Create schedule
         const createBtn = document.getElementById('createScheduleBtn');
         if (createBtn) {
-            createBtn.addEventListener('click', async () => {
-                await this.createDailySchedule(targetDate);
+            createBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('Create schedule button clicked');
+                try {
+                    await this.createDailySchedule(targetDate);
+                } catch (error) {
+                    console.error('Error in createDailySchedule:', error);
+                    this.showNotification('Lỗi khi tạo lịch: ' + error.message, 'danger');
+                }
             });
+        } else {
+            console.error('createScheduleBtn not found!');
         }
     }
 
@@ -686,6 +699,27 @@ class ChillPomodoroApp {
      */
     async createDailySchedule(targetDate) {
         try {
+            // Step 1: Validate date
+            const dateValidation = this.scheduleValidator.validateDate(targetDate);
+            if (!dateValidation.isValid) {
+                this.showNotification(dateValidation.errors.join('. '), 'warning');
+                return;
+            }
+
+            // Step 2: Check if schedule already exists for this date
+            const existingSchedule = await this.dailyActivityManager.getDailyActivitySchedule(targetDate);
+            if (existingSchedule) {
+                const confirmReplace = confirm(
+                    `Đã có lịch sinh hoạt cho ngày ${this.dailyScheduleRenderer.formatDateDisplay(targetDate)}. Bạn có muốn thay thế không?`
+                );
+                if (!confirmReplace) {
+                    return;
+                }
+                // Delete existing schedule
+                await this.dailyActivityManager.deleteDailyActivitySchedule(existingSchedule.id);
+            }
+
+            // Step 3: Collect and sanitize activities
             const activities = [];
             let activityIdCounter = 1;
 
@@ -702,14 +736,23 @@ class ChillPomodoroApp {
                 const timeSlotSelect = courseItem.querySelector('.course-timeslot-select');
                 const courseNameEl = courseItem.querySelector('.course-name');
                 
-                const topic = topicInput?.value || '';
-                const content = contentInput?.value || '';
+                let topic = topicInput?.value || '';
+                let content = contentInput?.value || '';
                 const priority = prioritySelect?.value || 'medium';
-                const duration = parseInt(durationInput?.value || 60);
+                let duration = parseInt(durationInput?.value || 60);
                 const timeSlot = timeSlotSelect?.value || 'auto';
-                const courseName = courseNameEl?.textContent || 'Môn học';
+                let courseName = courseNameEl?.textContent || 'Môn học';
 
-                activities.push({
+                // Sanitize inputs
+                topic = this.scheduleValidator.sanitizeString(topic);
+                content = this.scheduleValidator.sanitizeString(content);
+                courseName = this.scheduleValidator.sanitizeString(courseName);
+                
+                // Validate and clamp duration
+                if (isNaN(duration) || duration < 15) duration = 15;
+                if (duration > 480) duration = 480;
+
+                const activity = {
                     id: `activity-${activityIdCounter++}`,
                     type: 'study',
                     courseId: courseId,
@@ -720,7 +763,20 @@ class ChillPomodoroApp {
                     estimatedDuration: duration,
                     timeSlot: timeSlot === 'auto' ? null : timeSlot,
                     status: 'planned'
-                });
+                };
+
+                // Validate activity
+                const validation = this.scheduleValidator.validateActivity(activity);
+                if (!validation.isValid) {
+                    console.warn(`Activity validation failed: ${validation.errors.join(', ')}`);
+                    this.showNotification(
+                        `Lỗi trong hoạt động "${courseName}": ${validation.errors.join(', ')}`,
+                        'warning'
+                    );
+                    return; // Skip this activity
+                }
+
+                activities.push(this.scheduleValidator.sanitizeActivity(activity));
             });
 
             // Collect other activities
@@ -733,12 +789,19 @@ class ChillPomodoroApp {
                 const timeSlotSelect = activityItem.querySelector('.activity-timeslot-select');
                 const activityNameEl = activityItem.querySelector('.activity-name');
                 
-                const duration = parseInt(durationInput?.value || 30);
+                let duration = parseInt(durationInput?.value || 30);
                 const timeSlot = timeSlotSelect?.value || 'auto';
-                const activityName = activityNameEl?.textContent || 'Hoạt động';
+                let activityName = activityNameEl?.textContent || 'Hoạt động';
                 const activityType = activityItem.dataset.activityId || 'personal';
 
-                activities.push({
+                // Sanitize inputs
+                activityName = this.scheduleValidator.sanitizeString(activityName);
+                
+                // Validate and clamp duration
+                if (isNaN(duration) || duration < 15) duration = 15;
+                if (duration > 480) duration = 480;
+
+                const activity = {
                     id: `activity-${activityIdCounter++}`,
                     type: activityType,
                     name: activityName,
@@ -746,65 +809,156 @@ class ChillPomodoroApp {
                     estimatedDuration: duration,
                     timeSlot: timeSlot === 'auto' ? null : timeSlot,
                     status: 'planned'
-                });
+                };
+
+                // Validate activity
+                const validation = this.scheduleValidator.validateActivity(activity);
+                if (!validation.isValid) {
+                    console.warn(`Activity validation failed: ${validation.errors.join(', ')}`);
+                    this.showNotification(
+                        `Lỗi trong hoạt động "${activityName}": ${validation.errors.join(', ')}`,
+                        'warning'
+                    );
+                    return; // Skip this activity
+                }
+
+                activities.push(this.scheduleValidator.sanitizeActivity(activity));
             });
 
-            if (activities.length === 0) {
-                this.showNotification('Vui lòng chọn ít nhất một hoạt động', 'warning');
+            console.log('Collected activities:', activities);
+            
+            // Step 4: Validate activities array
+            const activitiesValidation = this.scheduleValidator.validateActivities(activities);
+            if (!activitiesValidation.isValid) {
+                this.showNotification(activitiesValidation.errors.join('. '), 'warning');
                 return;
             }
 
+            // Step 5: Validate notes
             const notesEl = document.getElementById('scheduleNotes');
-            const notes = notesEl?.value || '';
-
-            // Schedule activities using ActivityScheduler
-            const timeSlots = this.dailyActivityManager.calculateTimeSlots(targetDate);
+            let notes = notesEl?.value || '';
+            notes = this.scheduleValidator.sanitizeString(notes);
             
-            // Separate activities by time slot
+            const notesValidation = this.scheduleValidator.validateNotes(notes);
+            if (!notesValidation.isValid) {
+                this.showNotification(notesValidation.errors.join('. '), 'warning');
+                return;
+            }
+
+            // Step 6: Calculate time slots
+            console.log('Calculating time slots...');
+            const timeSlots = this.dailyActivityManager.calculateTimeSlots(targetDate);
+            console.log('Time slots:', timeSlots);
+            
+            // Validate time slots
+            if (!timeSlots.morningSlot || !timeSlots.afternoonSlot) {
+                throw new Error('Không thể tính toán khung giờ. Vui lòng kiểm tra lại lịch học.');
+            }
+
+            // Step 7: Separate activities by time slot
             const morningActivities = activities.filter(a => 
-                a.timeSlot === 'morning' || (!a.timeSlot && a.type === 'exercise')
+                a.timeSlot === 'morning' || (!a.timeSlot && (a.type === 'exercise' || a.type === 'meal'))
             );
             const afternoonActivities = activities.filter(a => 
-                a.timeSlot === 'afternoon' || (!a.timeSlot && a.type !== 'exercise')
+                a.timeSlot === 'afternoon' || (!a.timeSlot && a.type !== 'exercise' && a.type !== 'meal')
             );
 
-            // Schedule morning activities
+            // Step 8: Validate time slot capacity
+            const morningValidation = this.scheduleValidator.validateTimeSlotCapacity(
+                morningActivities,
+                timeSlots.morningSlot
+            );
+            const afternoonValidation = this.scheduleValidator.validateTimeSlotCapacity(
+                afternoonActivities,
+                timeSlots.afternoonSlot
+            );
+
+            // Warn if activities don't fit
+            const warnings = [];
+            if (!morningValidation.canFit && morningActivities.length > 0) {
+                warnings.push(
+                    `Buổi sáng: Không đủ thời gian. Cần ${morningValidation.requiredTime} phút, có ${morningValidation.availableTime} phút. Thiếu ${morningValidation.overflow} phút.`
+                );
+            }
+            if (!afternoonValidation.canFit && afternoonActivities.length > 0) {
+                warnings.push(
+                    `Buổi chiều: Không đủ thời gian. Cần ${afternoonValidation.requiredTime} phút, có ${afternoonValidation.availableTime} phút. Thiếu ${afternoonValidation.overflow} phút.`
+                );
+            }
+
+            if (warnings.length > 0) {
+                const proceed = confirm(
+                    warnings.join('\n') + 
+                    '\n\nMột số hoạt động có thể không được sắp xếp vào lịch. Bạn có muốn tiếp tục không?'
+                );
+                if (!proceed) {
+                    return;
+                }
+            }
+
+            // Step 9: Schedule activities
             const scheduledMorning = this.activityScheduler.scheduleActivities(
                 morningActivities,
                 timeSlots.morningSlot
             );
-
-            // Schedule afternoon activities
             const scheduledAfternoon = this.activityScheduler.scheduleActivities(
                 afternoonActivities,
                 timeSlots.afternoonSlot
             );
 
-            // Combine all scheduled activities
+            // Check if any activities were skipped
+            const skippedMorning = morningActivities.length - scheduledMorning.length;
+            const skippedAfternoon = afternoonActivities.length - scheduledAfternoon.length;
+
+            if (skippedMorning > 0 || skippedAfternoon > 0) {
+                const skippedCount = skippedMorning + skippedAfternoon;
+                this.showNotification(
+                    `Đã tạo lịch nhưng ${skippedCount} hoạt động không thể sắp xếp do thiếu thời gian.`,
+                    'warning'
+                );
+            }
+
+            // Step 10: Combine all scheduled activities
             const allScheduledActivities = [...scheduledMorning, ...scheduledAfternoon];
 
-            // Create schedule
+            if (allScheduledActivities.length === 0) {
+                this.showNotification('Không có hoạt động nào được sắp xếp vào lịch. Vui lòng kiểm tra lại thời gian.', 'warning');
+                return;
+            }
+
+            // Step 11: Create schedule
+            console.log('Creating schedule in IndexedDB...');
             const schedule = await this.dailyActivityManager.createDailyActivitySchedule(
                 targetDate,
                 allScheduledActivities,
                 notes
             );
+            console.log('Schedule created successfully:', schedule);
 
             this.showNotification('Đã tạo lịch sinh hoạt thành công!', 'success');
             
-            // Render the created schedule
+            // Step 12: Render the created schedule
             const container = document.getElementById('dailyScheduleContainer');
             if (container) {
+                console.log('Rendering schedule view...');
                 this.dailyScheduleRenderer.renderDailySchedule(container, schedule);
                 this.setupDailyScheduleActions(schedule);
+            } else {
+                console.error('dailyScheduleContainer not found!');
             }
             
-            // Refresh list
+            // Step 13: Refresh list
+            console.log('Refreshing daily schedules list...');
             await this.renderDailySchedules();
+            console.log('=== createDailySchedule completed successfully ===');
 
         } catch (error) {
             console.error('Error creating daily schedule:', error);
-            this.showNotification(error.message || 'Không thể tạo lịch sinh hoạt', 'danger');
+            console.error('Error stack:', error.stack);
+            this.showNotification(
+                error.message || 'Không thể tạo lịch sinh hoạt. Vui lòng thử lại.',
+                'danger'
+            );
         }
     }
 

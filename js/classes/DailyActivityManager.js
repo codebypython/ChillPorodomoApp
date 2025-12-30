@@ -146,7 +146,13 @@ export class DailyActivityManager {
      * Chuyển đổi thời gian thành phút
      */
     timeToMinutes(timeStr) {
+        if (!timeStr || typeof timeStr !== 'string') {
+            throw new Error('Invalid time string');
+        }
         const [hours, minutes] = timeStr.split(':').map(Number);
+        if (isNaN(hours) || isNaN(minutes)) {
+            throw new Error('Invalid time format');
+        }
         return hours * 60 + minutes;
     }
 
@@ -178,24 +184,55 @@ export class DailyActivityManager {
      * Tạo daily activity schedule
      */
     async createDailyActivitySchedule(date, activities, notes = '') {
+        // Validate inputs
+        if (!date || !(date instanceof Date)) {
+            throw new Error('Invalid date provided');
+        }
+
+        if (!Array.isArray(activities)) {
+            throw new Error('Activities must be an array');
+        }
+
+        if (activities.length === 0) {
+            throw new Error('At least one activity is required');
+        }
+
         const dateStr = this.formatDate(date);
         const dayOfWeek = date.getDay();
         const dayNumber = dayOfWeek === 0 ? 7 : dayOfWeek;
         
         const timeSlots = this.calculateTimeSlots(date);
         
-        // Phân loại activities vào morning và afternoon
+        if (!timeSlots.morningSlot || !timeSlots.afternoonSlot) {
+            throw new Error('Cannot calculate time slots');
+        }
+        
+        // Activities đã được schedule và có scheduledTime, scheduledEndTime
+        // Chỉ cần phân loại vào morning/afternoon dựa trên scheduledTime
         const morningActivities = [];
         const afternoonActivities = [];
         
         activities.forEach(activity => {
-            if (activity.timeSlot === 'morning') {
-                morningActivities.push(activity);
-            } else if (activity.timeSlot === 'afternoon') {
-                afternoonActivities.push(activity);
+            if (!activity.scheduledTime) {
+                // Fallback: phân loại theo timeSlot nếu chưa có scheduledTime
+                if (activity.timeSlot === 'morning') {
+                    morningActivities.push(activity);
+                } else if (activity.timeSlot === 'afternoon') {
+                    afternoonActivities.push(activity);
+                } else {
+                    // Auto-assign based on type
+                    if (activity.type === 'exercise' || activity.type === 'meal') {
+                        morningActivities.push(activity);
+                    } else {
+                        afternoonActivities.push(activity);
+                    }
+                }
             } else {
-                // Auto-assign based on type
-                if (activity.type === 'exercise' || activity.type === 'meal') {
+                // Phân loại dựa trên scheduledTime
+                const scheduledMinutes = this.timeToMinutes(activity.scheduledTime);
+                const morningEndMinutes = this.timeToMinutes(timeSlots.morningSlot.endTime);
+                
+                if (scheduledMinutes < morningEndMinutes) {
                     morningActivities.push(activity);
                 } else {
                     afternoonActivities.push(activity);
@@ -220,7 +257,7 @@ export class DailyActivityManager {
                 endTime: timeSlots.afternoonSlot.endTime,
                 activities: afternoonActivities
             },
-            notes,
+            notes: notes || '',
             totalStudyTime: activities
                 .filter(a => a.type === 'study')
                 .reduce((sum, a) => sum + (a.estimatedDuration || 0), 0),
@@ -228,11 +265,26 @@ export class DailyActivityManager {
             totalActivities: activities.length
         };
         
-        // Save to IndexedDB
-        const id = await this.storageManager.addItem('schedules', schedule);
-        schedule.id = id;
+        // Validate schedule object before saving
+        if (!schedule.morningSchedule || !schedule.afternoonSchedule) {
+            throw new Error('Invalid schedule structure');
+        }
         
-        return schedule;
+        // Save to IndexedDB
+        try {
+            const id = await this.storageManager.addItem('schedules', schedule);
+            schedule.id = id;
+            
+            // Verify save was successful
+            if (!id) {
+                throw new Error('Failed to save schedule to database');
+            }
+            
+            return schedule;
+        } catch (error) {
+            console.error('Error saving schedule to IndexedDB:', error);
+            throw new Error('Không thể lưu lịch vào cơ sở dữ liệu: ' + error.message);
+        }
     }
 
     /**
