@@ -198,11 +198,21 @@ export class AudioManager {
 
         try {
             // Determine selected tracks (multi) or fallback to legacy single
-            const selections = Array.isArray(this.settings.selectedMusicTracks) && this.settings.selectedMusicTracks.length > 0
-                ? this.settings.selectedMusicTracks
-                : (this.settings.backgroundMusicType && this.settings.backgroundMusicType !== 'none'
-                    ? [{ id: this.settings.backgroundMusicType, volume: this.settings.backgroundMusicVolume, name: 'Track' }]
-                    : []);
+            let selections = [];
+            if (Array.isArray(this.settings.selectedMusicTracks) && this.settings.selectedMusicTracks.length > 0) {
+                selections = this.settings.selectedMusicTracks;
+            } else if (musicId) {
+                selections = [{ id: musicId, volume: this.settings.backgroundMusicVolume, name: 'Track' }];
+            } else if (this.settings.backgroundMusicType && this.settings.backgroundMusicType !== 'none') {
+                selections = [{ id: this.settings.backgroundMusicType, volume: this.settings.backgroundMusicVolume, name: 'Track' }];
+            }
+
+            const desiredIds = new Set(selections.map(selection => parseInt(selection.id, 10)));
+            for (const [id] of this.tracks.entries()) {
+                if (!desiredIds.has(id)) {
+                    this.removeTrackById(id);
+                }
+            }
 
             // Start each selected track
             for (const sel of selections) {
@@ -297,9 +307,11 @@ export class AudioManager {
      * Pause background music
      */
     pauseBackgroundMusic() {
-        if (this.backgroundMusic && !this.backgroundMusic.paused) {
+        for (const [, track] of this.tracks.entries()) {
             try {
-                this.backgroundMusic.pause();
+                if (track.audio && !track.audio.paused) {
+                    track.audio.pause();
+                }
             } catch (error) {
                 console.warn('Error pausing background music:', error);
             }
@@ -310,9 +322,11 @@ export class AudioManager {
      * Resume background music
      */
     resumeBackgroundMusic() {
-        if (this.backgroundMusic && this.backgroundMusic.paused) {
+        for (const [, track] of this.tracks.entries()) {
             try {
-                this.backgroundMusic.play().catch(console.warn);
+                if (track.audio && track.audio.paused) {
+                    track.audio.play().catch(console.warn);
+                }
             } catch (error) {
                 console.warn('Error resuming background music:', error);
             }
@@ -397,7 +411,12 @@ export class AudioManager {
      * Check if music is currently playing
      */
     isPlaying() {
-        return this.backgroundMusic && !this.backgroundMusic.paused;
+        for (const [, track] of this.tracks.entries()) {
+            if (track.audio && !track.audio.paused) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

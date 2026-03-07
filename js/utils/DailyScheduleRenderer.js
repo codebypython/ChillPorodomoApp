@@ -11,7 +11,7 @@ export class DailyScheduleRenderer {
     /**
      * Render form tạo daily activity schedule
      */
-    renderCreateForm(container, targetDate) {
+    renderCreateForm(container, targetDate, plannedTasks = [], recommendedWorkouts = []) {
         if (!container) return;
         
         const dateStr = this.formatDate(targetDate);
@@ -73,6 +73,20 @@ export class DailyScheduleRenderer {
                     <button id="addActivityBtn" class="btn-action secondary">
                         ➕ Thêm Hoạt Động
                     </button>
+                </div>
+
+                <div class="other-activities-section">
+                    <h3>🗂️ Task Học Tập Đề Xuất</h3>
+                    <div id="plannedTasksList" class="other-activities-list">
+                        ${this.renderPlannedTasksList(plannedTasks)}
+                    </div>
+                </div>
+
+                <div class="other-activities-section">
+                    <h3>🏋️ Workout Gợi Ý Trong Ngày</h3>
+                    <div id="recommendedWorkoutList" class="other-activities-list">
+                        ${this.renderRecommendedWorkoutList(recommendedWorkouts)}
+                    </div>
                 </div>
 
                 <div class="notes-section">
@@ -201,6 +215,103 @@ export class DailyScheduleRenderer {
         `).join('');
     }
 
+    renderPlannedTasksList(tasks) {
+        if (!tasks || tasks.length === 0) {
+            return `
+                <div class="empty-courses">
+                    <p>Chưa có task học tập nào sẵn sàng để lên lịch</p>
+                    <p class="hint">Tạo task ở tab Planner để app tự gợi ý lịch học</p>
+                </div>
+            `;
+        }
+
+        return tasks.map(task => `
+            <div class="other-activity-item" data-task-id="${task.id}">
+                <label class="activity-checkbox">
+                    <input type="checkbox" class="planned-task-checkbox" data-task-id="${task.id}">
+                    <span class="activity-icon">🧠</span>
+                    <span class="activity-name">${task.title}</span>
+                </label>
+                <div class="activity-details" data-task-id="${task.id}" style="display: none;">
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label>Môn học</label>
+                            <input type="text" class="planned-task-subject" data-task-id="${task.id}" value="${task.subject || ''}">
+                        </div>
+                        <div class="input-group">
+                            <label>Thời gian (phút)</label>
+                            <input type="number" class="planned-task-duration" data-task-id="${task.id}" value="${task.estimatedDuration || 45}" min="15" step="15">
+                        </div>
+                        <div class="input-group">
+                            <label>Khung giờ</label>
+                            <select class="planned-task-timeslot" data-task-id="${task.id}">
+                                <option value="auto">Tự động</option>
+                                <option value="morning">Buổi sáng</option>
+                                <option value="afternoon">Buổi chiều/tối</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label>Ưu tiên</label>
+                            <select class="planned-task-priority" data-task-id="${task.id}">
+                                <option value="high" ${task.priority === 'high' ? 'selected' : ''}>🔴 Cao</option>
+                                <option value="medium" ${task.priority !== 'high' && task.priority !== 'low' ? 'selected' : ''}>🟡 Trung bình</option>
+                                <option value="low" ${task.priority === 'low' ? 'selected' : ''}>🟢 Thấp</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Mức tập trung</label>
+                            <select class="planned-task-focus" data-task-id="${task.id}">
+                                <option value="high" ${task.focusLevel === 'high' ? 'selected' : ''}>Cao</option>
+                                <option value="medium" ${task.focusLevel !== 'high' && task.focusLevel !== 'low' ? 'selected' : ''}>Trung bình</option>
+                                <option value="low" ${task.focusLevel === 'low' ? 'selected' : ''}>Thấp</option>
+                            </select>
+                        </div>
+                    </div>
+                    ${task.notes ? `<div class="activity-content-text">${task.notes}</div>` : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    renderRecommendedWorkoutList(workouts) {
+        if (!workouts || workouts.length === 0) {
+            return `
+                <div class="empty-courses">
+                    <p>Không có workout session nào được lên lịch cho ngày này</p>
+                    <p class="hint">Tạo workout plan ở tab Schedules > Lịch Tập Luyện để app tự gợi ý.</p>
+                </div>
+            `;
+        }
+
+        return workouts.map(workout => `
+            <div class="other-activity-item" data-workout-session-id="${workout.id}">
+                <label class="activity-checkbox">
+                    <input type="checkbox" class="recommended-workout-checkbox" data-workout-session-id="${workout.id}">
+                    <span class="activity-icon">🏋️</span>
+                    <span class="activity-name">${workout.label}</span>
+                </label>
+                <div class="activity-details" data-workout-session-id="${workout.id}" style="display: none;">
+                    <div class="activity-content-text">
+                        <div>${workout.dayFocus} • ${workout.estimatedDuration} phút</div>
+                        ${workout.recommendationContext?.reason ? `<div>${workout.recommendationContext.reason}</div>` : ''}
+                    </div>
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label>Khung giờ</label>
+                            <select class="recommended-workout-timeslot" data-workout-session-id="${workout.id}">
+                                <option value="auto">Tự động</option>
+                                <option value="morning">Buổi sáng</option>
+                                <option value="afternoon">Buổi chiều/tối</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
     /**
      * Render daily schedule đã tạo
      */
@@ -292,7 +403,9 @@ export class DailyScheduleRenderer {
                         <div class="activity-title">
                             ${activity.courseName ? `📚 ${activity.courseName}` : this.getActivityIcon(activity.type)} ${activity.name || activity.topic || 'Hoạt động'}
                         </div>
+                        ${activity.taskId ? `<div class="activity-topic">Task Planner: ${activity.taskTitle || activity.topic || activity.name}</div>` : ''}
                         ${activity.topic ? `<div class="activity-topic">Chủ đề: ${activity.topic}</div>` : ''}
+                        ${activity.workoutSessionId ? `<div class="activity-topic">Workout session: ${activity.name || activity.topic}</div>` : ''}
                         ${activity.content ? `
                             <div class="activity-content-text">
                                 ${activity.content.split('\n').map(line => `<div>${line}</div>`).join('')}
@@ -304,8 +417,8 @@ export class DailyScheduleRenderer {
                         </div>
                     </div>
                     <div class="activity-actions">
-                        <button class="activity-btn complete" data-activity-id="${activity.id}">✅ Hoàn thành</button>
-                        <button class="activity-btn skip" data-activity-id="${activity.id}">⏭️ Bỏ qua</button>
+                        <button class="activity-btn complete" data-activity-id="${activity.id}" ${activity.status === 'completed' ? 'disabled' : ''}>✅ Hoàn thành</button>
+                        <button class="activity-btn skip" data-activity-id="${activity.id}" ${activity.status === 'skipped' ? 'disabled' : ''}>⏭️ Bỏ qua</button>
                     </div>
                 </div>
             `;

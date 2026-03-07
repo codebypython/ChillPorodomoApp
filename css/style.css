@@ -1,3 +1,71 @@
+.planner-task-card,
+.planner-due-item {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+}
+
+.planner-task-card.pending {
+    border-left: 4px solid #f59e0b;
+}
+
+.planner-task-card.in_progress {
+    border-left: 4px solid #3b82f6;
+}
+
+.planner-task-card.completed {
+    border-left: 4px solid #22c55e;
+    opacity: 0.9;
+}
+
+.planner-task-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 0.5rem;
+}
+
+.planner-task-title {
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.planner-task-meta,
+.planner-task-notes {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.planner-task-status {
+    white-space: nowrap;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+#studyAnalyticsList,
+#plannerDueSoon,
+#workoutAnalyticsList,
+#workoutRecommendationsList {
+    display: grid;
+    gap: 0.75rem;
+}
+
+#exerciseProgramBuilder {
+    width: 100%;
+}
+
+#exerciseProgramList,
+#exerciseSessionList {
+    margin-top: 1rem;
+}
+
+.w-100 {
+    width: 100%;
+}
 /* ============================================
    ChillPomodoro - Main Stylesheet
    Modern, Beautiful, Responsive Design

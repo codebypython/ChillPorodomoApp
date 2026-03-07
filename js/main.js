@@ -17,6 +17,20 @@ import { DailyActivityManager } from './classes/DailyActivityManager.js';
 import { DailyScheduleRenderer } from './utils/DailyScheduleRenderer.js';
 import { ActivityScheduler } from './utils/ActivityScheduler.js';
 import { ScheduleValidator } from './utils/ScheduleValidator.js';
+import { notificationService } from './services/NotificationService.js';
+import { TaskPlannerManager } from './classes/TaskPlannerManager.js';
+import { ScheduleController } from './controllers/ScheduleController.js';
+import { formatDateKey } from './utils/TimeUtils.js';
+import { WorkoutManager } from './classes/WorkoutManager.js';
+import { WorkoutRenderer } from './utils/WorkoutRenderer.js';
+import { WorkoutController } from './controllers/WorkoutController.js';
+
+// Silence verbose debug noise while preserving real errors.
+const console = {
+    ...globalThis.console,
+    log: () => {},
+    warn: () => {}
+};
 
 class ChillPomodoroApp {
     constructor() {
@@ -32,8 +46,20 @@ class ChillPomodoroApp {
         this.dailyScheduleRenderer = null;
         this.activityScheduler = null;
         this.scheduleValidator = null;
+        this.taskPlannerManager = null;
+        this.scheduleController = null;
+        this.workoutManager = null;
+        this.workoutRenderer = null;
+        this.workoutController = null;
         this.currentTab = 'timer';
         this.currentScheduleType = 'class'; // 'class' or 'life'
+        this.libraryDirty = false;
+        this.classSchedulesDirty = true;
+        this.dailySchedulesDirty = true;
+        this.exerciseSchedulesDirty = true;
+        this.activeFocusTaskId = null;
+        this.currentFocusSessionStart = null;
+        this.headerDropdownsInitialized = false;
     }
 
     /**
@@ -70,11 +96,27 @@ class ChillPomodoroApp {
             this.scheduleValidator = new ScheduleValidator();
             this.dailyActivityManager = new DailyActivityManager(this.scheduleManager);
             this.dailyScheduleRenderer = new DailyScheduleRenderer(this.dailyActivityManager, this.activityScheduler);
-
-            // Make managers globally accessible for onclick handlers
-            window.libraryManager = this.libraryManager;
-            window.presetManager = this.presetManager;
-            window.scheduleManager = this.scheduleManager;
+            this.taskPlannerManager = new TaskPlannerManager();
+            this.workoutManager = new WorkoutManager(this.scheduleManager, this.dailyActivityManager);
+            await this.workoutManager.ensureSeedData();
+            this.workoutRenderer = new WorkoutRenderer();
+            this.scheduleController = new ScheduleController({
+                scheduleManager: this.scheduleManager,
+                scheduleRenderer: this.scheduleRenderer,
+                dailyActivityManager: this.dailyActivityManager,
+                dailyScheduleRenderer: this.dailyScheduleRenderer,
+                notifier: (message, type) => this.showNotification(message, type),
+                onDailyScheduleOpened: (schedule) => this.setupDailyScheduleActions(schedule)
+            });
+            this.workoutController = new WorkoutController({
+                workoutManager: this.workoutManager,
+                workoutRenderer: this.workoutRenderer,
+                notifier: (message, type) => this.showNotification(message, type),
+                onWorkoutUpdated: async () => {
+                    this.exerciseSchedulesDirty = true;
+                    await this.updateStatistics();
+                }
+            });
 
             // Seed default data on first run
             await this.seedDefaultData();
@@ -86,9 +128,7 @@ class ChillPomodoroApp {
             this.initializeUI();
 
             // Hide loading screen
-            setTimeout(() => {
-                loading.classList.add('hidden');
-            }, 1000);
+            loading.classList.add('hidden');
 
             console.log('ChillPomodoroApp initialized successfully!');
         } catch (error) {
@@ -239,6 +279,10 @@ class ChillPomodoroApp {
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => this.handleKeyboard(e));
 
+        document.addEventListener('timer:session-complete', (event) => {
+            this.handleTimerSessionComplete(event.detail);
+        });
+
         // Visibility change (tab switching)
         document.addEventListener('visibilitychange', () => {
             this.timer.handleVisibilityChange();
@@ -269,6 +313,8 @@ class ChillPomodoroApp {
         document.getElementById('backgroundMusicVolume')?.addEventListener('input', (e) => {
             const volume = parseInt(e.target.value);
             document.getElementById('musicVolumeDisplay').textContent = volume + '%';
+            this.settings.backgroundMusicVolume = volume;
+            this.settings.scheduleSave();
             this.audioManager.setBackgroundMusicVolume(volume);
         });
 
@@ -276,12 +322,14 @@ class ChillPomodoroApp {
             const opacity = parseInt(e.target.value);
             document.getElementById('opacityDisplay').textContent = opacity + '%';
             this.settings.backgroundOpacity = opacity;
+            this.settings.scheduleSave();
             this.backgroundManager.setBackgroundOpacity();
         });
 
         // Background type change
         document.getElementById('backgroundType')?.addEventListener('change', (e) => {
             this.settings.backgroundType = e.target.value;
+            this.settings.scheduleSave();
             this.backgroundManager.applyBackground();
         });
 
@@ -325,6 +373,23 @@ class ChillPomodoroApp {
                 await storageManager.clearAllData();
                 location.reload();
             }
+        });
+
+        document.getElementById('plannerAddTaskBtn')?.addEventListener('click', () => {
+            this.createTaskFromPlanner();
+        });
+
+        document.getElementById('plannerSaveGoalsBtn')?.addEventListener('click', () => {
+            this.saveStudyGoals();
+        });
+
+        document.getElementById('focusTaskSelect')?.addEventListener('change', (e) => {
+            const value = e.target.value ? parseInt(e.target.value, 10) : null;
+            this.setActiveFocusTask(value);
+        });
+
+        document.getElementById('clearFocusTaskBtn')?.addEventListener('click', () => {
+            this.setActiveFocusTask(null);
         });
 
         // Schedule actions
@@ -424,6 +489,7 @@ class ChillPomodoroApp {
             this.showNotification('Tạo lịch học thành công!', 'success');
 
             // Render schedule list
+            this.classSchedulesDirty = true;
             await this.renderSchedules();
 
             // Auto show the schedule - render directly from courses
@@ -446,37 +512,8 @@ class ChillPomodoroApp {
      * Render schedules list
      */
     async renderSchedules() {
-        const scheduleList = document.getElementById('scheduleList');
-        if (!scheduleList) return;
-
-        await this.scheduleManager.loadSchedules();
-        const schedules = this.scheduleManager.schedules.filter(s => s.type === 'class');
-
-        this.scheduleRenderer.renderScheduleList(
-            scheduleList,
-            schedules,
-            async (id) => {
-                // View schedule
-                const schedule = await this.scheduleManager.getSchedule(id);
-                if (schedule) {
-                    const container = document.getElementById('scheduleTableContainer');
-                    this.scheduleRenderer.renderWeeklySchedule(container, schedule);
-                }
-            },
-            async (id) => {
-                // Delete schedule
-                await this.scheduleManager.deleteSchedule(id);
-                await this.renderSchedules();
-                this.showNotification('Đã xóa lịch học', 'success');
-                
-                // Hide table if deleted schedule was being viewed
-                const container = document.getElementById('scheduleTableContainer');
-                if (container && this.scheduleManager.currentSchedule?.id === id) {
-                    container.style.display = 'none';
-                    this.scheduleManager.currentSchedule = null;
-                }
-            }
-        );
+        await this.scheduleController.renderClassSchedules();
+        this.classSchedulesDirty = false;
     }
 
     /**
@@ -485,27 +522,58 @@ class ChillPomodoroApp {
     switchScheduleType(type) {
         const classActions = document.getElementById('classScheduleActions');
         const dailyActions = document.getElementById('dailyScheduleActions');
+        const exerciseActions = document.getElementById('exerciseScheduleActions');
         const scheduleList = document.getElementById('scheduleList');
         const dailyScheduleList = document.getElementById('dailyScheduleList');
+        const exerciseProgramList = document.getElementById('exerciseProgramList');
+        const exerciseSessionList = document.getElementById('exerciseSessionList');
         const scheduleTableContainer = document.getElementById('scheduleTableContainer');
         const dailyScheduleContainer = document.getElementById('dailyScheduleContainer');
+        const exerciseScheduleContainer = document.getElementById('exerciseScheduleContainer');
+        this.currentScheduleType = type;
 
         if (type === 'class') {
             if (classActions) classActions.style.display = 'flex';
             if (dailyActions) dailyActions.style.display = 'none';
+            if (exerciseActions) exerciseActions.style.display = 'none';
             if (scheduleList) scheduleList.style.display = 'grid';
             if (dailyScheduleList) dailyScheduleList.style.display = 'none';
+            if (exerciseProgramList) exerciseProgramList.style.display = 'none';
+            if (exerciseSessionList) exerciseSessionList.style.display = 'none';
             if (scheduleTableContainer) scheduleTableContainer.style.display = 'none';
             if (dailyScheduleContainer) dailyScheduleContainer.style.display = 'none';
-            this.renderSchedules();
+            if (exerciseScheduleContainer) exerciseScheduleContainer.style.display = 'none';
+            if (this.classSchedulesDirty) {
+                this.renderSchedules();
+            }
         } else if (type === 'life') {
             if (classActions) classActions.style.display = 'none';
             if (dailyActions) dailyActions.style.display = 'flex';
+            if (exerciseActions) exerciseActions.style.display = 'none';
             if (scheduleList) scheduleList.style.display = 'none';
             if (dailyScheduleList) dailyScheduleList.style.display = 'grid';
+            if (exerciseProgramList) exerciseProgramList.style.display = 'none';
+            if (exerciseSessionList) exerciseSessionList.style.display = 'none';
             if (scheduleTableContainer) scheduleTableContainer.style.display = 'none';
             if (dailyScheduleContainer) dailyScheduleContainer.style.display = 'none';
-            this.renderDailySchedules();
+            if (exerciseScheduleContainer) exerciseScheduleContainer.style.display = 'none';
+            if (this.dailySchedulesDirty) {
+                this.renderDailySchedules();
+            }
+        } else if (type === 'exercise') {
+            if (classActions) classActions.style.display = 'none';
+            if (dailyActions) dailyActions.style.display = 'none';
+            if (exerciseActions) exerciseActions.style.display = 'block';
+            if (scheduleList) scheduleList.style.display = 'none';
+            if (dailyScheduleList) dailyScheduleList.style.display = 'none';
+            if (exerciseProgramList) exerciseProgramList.style.display = 'grid';
+            if (exerciseSessionList) exerciseSessionList.style.display = 'grid';
+            if (scheduleTableContainer) scheduleTableContainer.style.display = 'none';
+            if (dailyScheduleContainer) dailyScheduleContainer.style.display = 'none';
+            if (exerciseScheduleContainer) exerciseScheduleContainer.style.display = 'block';
+            if (this.exerciseSchedulesDirty) {
+                this.renderExerciseSchedules();
+            }
         }
     }
 
@@ -513,86 +581,13 @@ class ChillPomodoroApp {
      * Render daily schedules list
      */
     async renderDailySchedules() {
-        const dailyScheduleList = document.getElementById('dailyScheduleList');
-        if (!dailyScheduleList) return;
+        await this.scheduleController.renderDailySchedules();
+        this.dailySchedulesDirty = false;
+    }
 
-        try {
-            const schedules = await this.dailyActivityManager.getAllDailyActivitySchedules();
-
-            if (!schedules || schedules.length === 0) {
-                this.dailyScheduleRenderer.showEmpty(dailyScheduleList, 'Chưa có lịch sinh hoạt nào');
-                return;
-            }
-
-            dailyScheduleList.innerHTML = schedules.map(schedule => {
-                const date = this.dailyActivityManager.parseDate(schedule.date);
-                const dayOfWeek = this.dailyScheduleRenderer.getDayOfWeekName(date);
-                const completionRate = schedule.totalActivities > 0 
-                    ? Math.round((schedule.completedActivities / schedule.totalActivities) * 100) 
-                    : 0;
-
-                return `
-                    <div class="schedule-card daily-schedule-card" data-id="${schedule.id}">
-                        <div class="schedule-card-header">
-                            <h3 class="schedule-card-title">${dayOfWeek}, ${this.dailyScheduleRenderer.formatDateDisplay(date)}</h3>
-                            <span class="schedule-card-type">🏠 Lịch Sinh Hoạt</span>
-                        </div>
-                        <div class="schedule-card-body">
-                            <div class="schedule-card-info">
-                                <span class="schedule-info-item">
-                                    <span class="info-icon">✅</span>
-                                    ${schedule.completedActivities}/${schedule.totalActivities} hoàn thành (${completionRate}%)
-                                </span>
-                                <span class="schedule-info-item">
-                                    <span class="info-icon">📚</span>
-                                    ${schedule.totalStudyTime} phút học
-                                </span>
-                                ${schedule.hasClassToday ? 
-                                    '<span class="schedule-info-item"><span class="info-icon">📖</span>Có lớp học</span>' : 
-                                    '<span class="schedule-info-item"><span class="info-icon">✨</span>Không có lớp</span>'
-                                }
-                            </div>
-                        </div>
-                        <div class="schedule-card-actions">
-                            <button class="schedule-card-btn view" data-id="${schedule.id}">
-                                👁️ Xem
-                            </button>
-                            <button class="schedule-card-btn delete" data-id="${schedule.id}">
-                                🗑️ Xóa
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            // Add event listeners
-            dailyScheduleList.querySelectorAll('.schedule-card-btn.view').forEach(btn => {
-                btn.addEventListener('click', async () => {
-                    const id = parseInt(btn.dataset.id);
-                    const schedule = schedules.find(s => s.id === id);
-                    if (schedule) {
-                        const container = document.getElementById('dailyScheduleContainer');
-                        this.dailyScheduleRenderer.renderDailySchedule(container, schedule);
-                        if (container) container.style.display = 'block';
-                        this.setupDailyScheduleActions(schedule);
-                    }
-                });
-            });
-
-            dailyScheduleList.querySelectorAll('.schedule-card-btn.delete').forEach(btn => {
-                btn.addEventListener('click', async () => {
-                    if (confirm('Bạn có chắc muốn xóa lịch sinh hoạt này?')) {
-                        const id = parseInt(btn.dataset.id);
-                        await this.dailyActivityManager.deleteDailyActivitySchedule(id);
-                        await this.renderDailySchedules();
-                        this.showNotification('Đã xóa lịch sinh hoạt', 'success');
-                    }
-                });
-            });
-        } catch (error) {
-            console.error('Error rendering daily schedules:', error);
-            this.dailyScheduleRenderer.showEmpty(dailyScheduleList, 'Lỗi khi tải lịch sinh hoạt');
-        }
+    async renderExerciseSchedules() {
+        await this.workoutController.renderExerciseWorkspace();
+        this.exerciseSchedulesDirty = false;
     }
 
     /**
@@ -607,7 +602,10 @@ class ChillPomodoroApp {
         tomorrow.setDate(tomorrow.getDate() + 1);
         tomorrow.setHours(0, 0, 0, 0);
 
-        this.dailyScheduleRenderer.renderCreateForm(container, tomorrow);
+        const plannedTasks = await this.taskPlannerManager.getTasksForPlanning(tomorrow);
+        const recommendedWorkouts = (await this.workoutManager.getSessionsForDate(tomorrow))
+            .filter(session => session.status === 'planned');
+        this.dailyScheduleRenderer.renderCreateForm(container, tomorrow, plannedTasks, recommendedWorkouts);
         container.style.display = 'block';
 
         this.setupCreateDailyScheduleForm(tomorrow);
@@ -651,6 +649,26 @@ class ChillPomodoroApp {
             checkbox.addEventListener('change', () => {
                 const activityId = checkbox.dataset.activityId;
                 const details = document.querySelector(`.activity-details[data-activity-id="${activityId}"]`);
+                if (details) {
+                    details.style.display = checkbox.checked ? 'block' : 'none';
+                }
+            });
+        });
+
+        document.querySelectorAll('.planned-task-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', () => {
+                const taskId = checkbox.dataset.taskId;
+                const details = document.querySelector(`.activity-details[data-task-id="${taskId}"]`);
+                if (details) {
+                    details.style.display = checkbox.checked ? 'block' : 'none';
+                }
+            });
+        });
+
+        document.querySelectorAll('.recommended-workout-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', () => {
+                const sessionId = checkbox.dataset.workoutSessionId;
+                const details = document.querySelector(`.activity-details[data-workout-session-id="${sessionId}"]`);
                 if (details) {
                     details.style.display = checkbox.checked ? 'block' : 'none';
                 }
@@ -871,6 +889,87 @@ class ChillPomodoroApp {
                 activities.push(this.scheduleValidator.sanitizeActivity(activity));
             });
 
+            // Collect planned tasks
+            document.querySelectorAll('.planned-task-checkbox:checked').forEach(checkbox => {
+                const taskId = checkbox.dataset.taskId;
+                const taskItem = checkbox.closest('.other-activity-item');
+                if (!taskItem) return;
+
+                const titleEl = taskItem.querySelector('.activity-name');
+                const subjectInput = taskItem.querySelector('.planned-task-subject');
+                const durationInput = taskItem.querySelector('.planned-task-duration');
+                const timeSlotSelect = taskItem.querySelector('.planned-task-timeslot');
+                const prioritySelect = taskItem.querySelector('.planned-task-priority');
+                const focusSelect = taskItem.querySelector('.planned-task-focus');
+
+                const taskTitle = this.scheduleValidator.sanitizeString(titleEl?.textContent || 'Task học tập');
+                const subject = this.scheduleValidator.sanitizeString(subjectInput?.value || 'Khác');
+                let duration = parseInt(durationInput?.value || 45, 10);
+                if (isNaN(duration) || duration < 15) duration = 15;
+                if (duration > 480) duration = 480;
+
+                const activity = {
+                    id: `activity-${activityIdCounter++}`,
+                    taskId,
+                    taskTitle,
+                    type: 'study',
+                    courseName: subject,
+                    topic: taskTitle,
+                    content: `Task Planner`,
+                    priority: prioritySelect?.value || 'medium',
+                    focusLevel: focusSelect?.value || 'medium',
+                    estimatedDuration: duration,
+                    timeSlot: timeSlotSelect?.value === 'auto' ? null : timeSlotSelect?.value,
+                    status: 'planned'
+                };
+
+                const validation = this.scheduleValidator.validateActivity(activity);
+                if (!validation.isValid) {
+                    this.showNotification(
+                        `Lỗi trong task "${taskTitle}": ${validation.errors.join(', ')}`,
+                        'warning'
+                    );
+                    return;
+                }
+
+                activities.push(this.scheduleValidator.sanitizeActivity(activity));
+            });
+
+            for (const checkbox of document.querySelectorAll('.recommended-workout-checkbox:checked')) {
+                const sessionId = parseInt(checkbox.dataset.workoutSessionId, 10);
+                const workoutSession = await this.workoutManager.getWorkoutSession(sessionId);
+                const timeSlotSelect = document.querySelector(`.recommended-workout-timeslot[data-workout-session-id="${sessionId}"]`);
+
+                if (!workoutSession) {
+                    continue;
+                }
+
+                const activity = {
+                    id: `activity-${activityIdCounter++}`,
+                    type: 'workout',
+                    name: workoutSession.label,
+                    topic: workoutSession.dayFocus,
+                    content: `${workoutSession.exercises.length} bài tập • ${workoutSession.estimatedDuration} phút`,
+                    priority: 'high',
+                    estimatedDuration: workoutSession.estimatedDuration,
+                    timeSlot: timeSlotSelect?.value === 'auto' ? null : timeSlotSelect?.value,
+                    status: 'planned',
+                    workoutSessionId: workoutSession.id,
+                    workoutProgramId: workoutSession.programId
+                };
+
+                const validation = this.scheduleValidator.validateActivity(activity);
+                if (!validation.isValid) {
+                    this.showNotification(
+                        `Lỗi trong workout "${workoutSession.label}": ${validation.errors.join(', ')}`,
+                        'warning'
+                    );
+                    continue;
+                }
+
+                activities.push(this.scheduleValidator.sanitizeActivity(activity));
+            }
+
             console.log('Collected activities:', activities);
             
             // Step 4: Validate activities array
@@ -995,6 +1094,9 @@ class ChillPomodoroApp {
             
             // Step 13: Refresh list
             console.log('Refreshing daily schedules list...');
+            await this.syncTasksFromSchedule(schedule);
+            await this.syncWorkoutSessionsFromSchedule(schedule);
+            this.dailySchedulesDirty = true;
             await this.renderDailySchedules();
             console.log('=== createDailySchedule completed successfully ===');
 
@@ -1012,78 +1114,44 @@ class ChillPomodoroApp {
      * Setup daily schedule actions
      */
     setupDailyScheduleActions(schedule) {
-        // Activity completion buttons
-        document.querySelectorAll('.activity-btn.complete').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const activityId = btn.dataset.activityId;
+        this.scheduleController.showDailySchedule(schedule);
+        this.scheduleController.bindDailyScheduleActions({
+            onActivityStatus: async (selectedSchedule, activityId, status) => {
                 try {
-                    await this.dailyActivityManager.updateActivityStatus(schedule.id, activityId, 'completed');
-                    const updated = await this.dailyActivityManager.getDailyActivitySchedule(
-                        this.dailyActivityManager.parseDate(schedule.date)
-                    );
+                    await this.dailyActivityManager.updateActivityStatus(selectedSchedule.id, activityId, status);
+                    const updated = await this.scheduleController.refreshVisibleDailySchedule();
                     if (updated) {
-                        const container = document.getElementById('dailyScheduleContainer');
-                        if (container) {
-                            this.dailyScheduleRenderer.renderDailySchedule(container, updated);
-                            this.setupDailyScheduleActions(updated);
-                            await this.renderDailySchedules();
-                        }
+                        await this.syncTasksFromSchedule(updated);
+                        await this.syncWorkoutSessionsFromSchedule(updated);
                     }
+                    this.dailySchedulesDirty = true;
+                    await this.renderDailySchedules();
                 } catch (error) {
                     console.error('Error updating activity status:', error);
                     this.showNotification('Không thể cập nhật trạng thái', 'danger');
                 }
-            });
-        });
-
-        document.querySelectorAll('.activity-btn.skip').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const activityId = btn.dataset.activityId;
-                try {
-                    await this.dailyActivityManager.updateActivityStatus(schedule.id, activityId, 'skipped');
-                    const updated = await this.dailyActivityManager.getDailyActivitySchedule(
-                        this.dailyActivityManager.parseDate(schedule.date)
-                    );
-                    if (updated) {
-                        const container = document.getElementById('dailyScheduleContainer');
-                        if (container) {
-                            this.dailyScheduleRenderer.renderDailySchedule(container, updated);
-                            this.setupDailyScheduleActions(updated);
-                            await this.renderDailySchedules();
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error updating activity status:', error);
-                    this.showNotification('Không thể cập nhật trạng thái', 'danger');
-                }
-            });
-        });
-
-        // Edit and delete buttons
-        const editBtn = document.getElementById('editScheduleBtn');
-        if (editBtn) {
-            editBtn.addEventListener('click', () => {
+            },
+            onEdit: () => {
                 this.showNotification('Tính năng chỉnh sửa sẽ sớm có mặt', 'info');
-            });
-        }
-
-        const deleteBtn = document.getElementById('deleteScheduleBtn');
-        if (deleteBtn) {
-            deleteBtn.addEventListener('click', async () => {
-                if (confirm('Bạn có chắc muốn xóa lịch sinh hoạt này?')) {
-                    try {
-                        await this.dailyActivityManager.deleteDailyActivitySchedule(schedule.id);
-                        const container = document.getElementById('dailyScheduleContainer');
-                        if (container) container.style.display = 'none';
-                        await this.renderDailySchedules();
-                        this.showNotification('Đã xóa lịch sinh hoạt', 'success');
-                    } catch (error) {
-                        console.error('Error deleting schedule:', error);
-                        this.showNotification('Không thể xóa lịch sinh hoạt', 'danger');
-                    }
+            },
+            onDelete: async (selectedSchedule) => {
+                if (!confirm('Bạn có chắc muốn xóa lịch sinh hoạt này?')) {
+                    return;
                 }
-            });
-        }
+
+                try {
+                    await this.dailyActivityManager.deleteDailyActivitySchedule(selectedSchedule.id);
+                    const container = document.getElementById('dailyScheduleContainer');
+                    if (container) container.style.display = 'none';
+                    this.dailySchedulesDirty = true;
+                    await this.renderDailySchedules();
+                    this.showNotification('Đã xóa lịch sinh hoạt', 'success');
+                } catch (error) {
+                    console.error('Error deleting schedule:', error);
+                    this.showNotification('Không thể xóa lịch sinh hoạt', 'danger');
+                }
+            }
+        });
     }
 
     /**
@@ -1098,8 +1166,6 @@ class ChillPomodoroApp {
             const container = document.getElementById('dailyScheduleContainer');
             
             if (schedule) {
-                this.dailyScheduleRenderer.renderDailySchedule(container, schedule);
-                if (container) container.style.display = 'block';
                 this.setupDailyScheduleActions(schedule);
             } else {
                 this.dailyScheduleRenderer.showEmpty(container, 'Chưa có lịch sinh hoạt cho hôm nay');
@@ -1241,6 +1307,11 @@ class ChillPomodoroApp {
      * Setup header dropdown menus
      */
     setupHeaderDropdowns() {
+        if (this.headerDropdownsInitialized) {
+            this.populateDropdowns();
+            return;
+        }
+
         // Background dropdown
         const bgDropdownToggle = document.getElementById('backgroundDropdownToggle');
         const bgDropdown = document.getElementById('backgroundDropdown');
@@ -1269,6 +1340,7 @@ class ChillPomodoroApp {
 
         // Populate dropdowns
         this.populateDropdowns();
+        this.headerDropdownsInitialized = true;
     }
 
     /**
@@ -1317,7 +1389,7 @@ class ChillPomodoroApp {
 
                     // Apply background
                     this.settings.backgroundType = bgId;
-                    this.settings.save();
+                    this.settings.scheduleSave();
                     this.backgroundManager.applyBackground(bgId);
 
                     bgDropdown.classList.remove('show');
@@ -1371,7 +1443,7 @@ class ChillPomodoroApp {
                     // start selected tracks
                     await this.audioManager.startBackgroundMusic();
                 }
-                this.settings.save();
+                this.settings.scheduleSave();
                 this.renderPerTrackSliders();
             });
 
@@ -1388,7 +1460,7 @@ class ChillPomodoroApp {
                         this.settings.removeMusicTrack(id);
                         this.audioManager.removeTrackById(id);
                     }
-                    this.settings.save();
+                    this.settings.scheduleSave();
                     this.renderPerTrackSliders();
                 });
             });
@@ -1416,6 +1488,9 @@ class ChillPomodoroApp {
 
         // Render per-track sliders
         this.renderPerTrackSliders();
+        this.renderTaskPlanner();
+        this.loadStudyGoals();
+        this.renderFocusTaskOptions();
 
         // Render schedules
         this.renderSchedules();
@@ -1463,7 +1538,333 @@ class ChillPomodoroApp {
                 this.settings.setMusicTrackVolume(id, v);
                 this.audioManager.setTrackVolume(id, v);
             });
+            slider.addEventListener('change', () => {
+                this.settings.flushScheduledSave();
+            });
         });
+    }
+
+    async renderTaskPlanner() {
+        const summaryContainer = document.getElementById('plannerSummary');
+        const taskList = document.getElementById('plannerTaskList');
+        const dueSoonList = document.getElementById('plannerDueSoon');
+        if (!summaryContainer || !taskList || !dueSoonList) {
+            return;
+        }
+
+        const [tasks, analytics] = await Promise.all([
+            this.taskPlannerManager.getAllTasks(),
+            this.taskPlannerManager.getAnalytics()
+        ]);
+        const goals = this.taskPlannerManager.getGoals();
+
+        summaryContainer.innerHTML = `
+            <div class="stat-card">
+                <div class="stat-icon">📝</div>
+                <div class="stat-value">${analytics.pendingTasks}</div>
+                <div class="stat-label">Task đang mở</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">✅</div>
+                <div class="stat-value">${analytics.completedTasks}</div>
+                <div class="stat-label">Task hoàn thành</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🎯</div>
+                <div class="stat-value">${goals.dailyPomodoros}</div>
+                <div class="stat-label">Mục tiêu Pomodoro/ngày</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📚</div>
+                <div class="stat-value">${goals.weeklyStudyMinutes}m</div>
+                <div class="stat-label">Mục tiêu học/tuần</div>
+            </div>
+        `;
+
+        if (tasks.length === 0) {
+            taskList.innerHTML = '<div class="empty-state"><p>Chưa có task học tập nào. Hãy thêm task đầu tiên để planner bắt đầu hỗ trợ.</p></div>';
+        } else {
+            taskList.innerHTML = tasks.map(task => `
+                <div class="planner-task-card ${task.status}" data-task-id="${task.id}">
+                    <div class="planner-task-header">
+                        <div>
+                            <div class="planner-task-title">${task.title}</div>
+                            <div class="planner-task-meta">${task.subject} • ${task.estimatedDuration} phút • ${this.getPriorityLabel(task.priority)}</div>
+                        </div>
+                        <span class="planner-task-status">${this.getTaskStatusLabel(task.status)}</span>
+                    </div>
+                    <div class="planner-task-meta">
+                        ${task.deadline ? `Deadline: ${task.deadline}` : 'Chưa đặt deadline'}
+                        ${task.actualFocusMinutes ? ` • Đã tập trung ${task.actualFocusMinutes} phút` : ''}
+                    </div>
+                    ${task.notes ? `<div class="planner-task-notes">${task.notes}</div>` : ''}
+                    <div class="schedule-card-actions">
+                        <button class="schedule-card-btn view" data-action="toggle-task" data-id="${task.id}">
+                            ${task.status === 'completed' ? '↩️ Mở lại' : '✅ Hoàn tất'}
+                        </button>
+                        <button class="schedule-card-btn delete" data-action="delete-task" data-id="${task.id}">
+                            🗑️ Xóa
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        dueSoonList.innerHTML = analytics.dueSoon.length === 0
+            ? '<div class="text-muted">Không có task cận hạn.</div>'
+            : analytics.dueSoon.map(task => `
+                <div class="planner-due-item">
+                    <strong>${task.title}</strong>
+                    <span>${task.subject} • ${task.deadline}</span>
+                </div>
+            `).join('');
+
+        taskList.querySelectorAll('[data-action="toggle-task"]').forEach(button => {
+            button.addEventListener('click', async () => {
+                const taskId = parseInt(button.dataset.id, 10);
+                await this.toggleTaskStatus(taskId);
+            });
+        });
+
+        taskList.querySelectorAll('[data-action="delete-task"]').forEach(button => {
+            button.addEventListener('click', async () => {
+                const taskId = parseInt(button.dataset.id, 10);
+                await this.deleteTask(taskId);
+            });
+        });
+
+        await this.renderFocusTaskOptions();
+    }
+
+    loadStudyGoals() {
+        const goals = this.taskPlannerManager.getGoals();
+        const dailyInput = document.getElementById('plannerDailyPomodoros');
+        const weeklyInput = document.getElementById('plannerWeeklyMinutes');
+
+        if (dailyInput) {
+            dailyInput.value = goals.dailyPomodoros;
+        }
+        if (weeklyInput) {
+            weeklyInput.value = goals.weeklyStudyMinutes;
+        }
+    }
+
+    saveStudyGoals() {
+        const goals = this.taskPlannerManager.saveGoals({
+            dailyPomodoros: document.getElementById('plannerDailyPomodoros')?.value,
+            weeklyStudyMinutes: document.getElementById('plannerWeeklyMinutes')?.value
+        });
+
+        this.showNotification('Đã lưu mục tiêu học tập', 'success');
+        this.loadStudyGoals();
+        this.renderTaskPlanner();
+        this.updateStatistics();
+        return goals;
+    }
+
+    async createTaskFromPlanner() {
+        try {
+            const task = await this.taskPlannerManager.createTask({
+                title: document.getElementById('plannerTaskTitle')?.value,
+                subject: document.getElementById('plannerTaskSubject')?.value,
+                estimatedDuration: document.getElementById('plannerTaskDuration')?.value,
+                plannedPomodoros: document.getElementById('plannerTaskPomodoros')?.value,
+                deadline: document.getElementById('plannerTaskDeadline')?.value,
+                targetDate: document.getElementById('plannerTaskTargetDate')?.value,
+                priority: document.getElementById('plannerTaskPriority')?.value,
+                focusLevel: document.getElementById('plannerTaskFocusLevel')?.value,
+                notes: document.getElementById('plannerTaskNotes')?.value
+            });
+
+            [
+                'plannerTaskTitle',
+                'plannerTaskSubject',
+                'plannerTaskDuration',
+                'plannerTaskPomodoros',
+                'plannerTaskDeadline',
+                'plannerTaskTargetDate',
+                'plannerTaskNotes'
+            ].forEach(id => {
+                const element = document.getElementById(id);
+                if (element) element.value = '';
+            });
+            const durationInput = document.getElementById('plannerTaskDuration');
+            if (durationInput) durationInput.value = '45';
+            const pomodoroInput = document.getElementById('plannerTaskPomodoros');
+            if (pomodoroInput) pomodoroInput.value = '1';
+
+            this.showNotification(`Đã thêm task "${task.title}"`, 'success');
+            await this.renderTaskPlanner();
+        } catch (error) {
+            console.error('Error creating task:', error);
+            this.showNotification(error.message || 'Không thể tạo task', 'danger');
+        }
+    }
+
+    async toggleTaskStatus(taskId) {
+        const task = await this.taskPlannerManager.getTask(taskId);
+        if (!task) {
+            return;
+        }
+
+        const nextStatus = task.status === 'completed' ? 'pending' : 'completed';
+        await this.taskPlannerManager.setTaskStatus(taskId, nextStatus);
+        await this.renderTaskPlanner();
+        this.updateStatistics();
+    }
+
+    async deleteTask(taskId) {
+        if (!confirm('Bạn có chắc muốn xóa task này?')) {
+            return;
+        }
+
+        await this.taskPlannerManager.deleteTask(taskId);
+        if (this.activeFocusTaskId === taskId) {
+            this.setActiveFocusTask(null);
+        }
+        await this.renderTaskPlanner();
+        this.updateStatistics();
+        this.showNotification('Đã xóa task học tập', 'success');
+    }
+
+    async renderFocusTaskOptions() {
+        const select = document.getElementById('focusTaskSelect');
+        const summary = document.getElementById('focusTaskSummary');
+        if (!select || !summary) {
+            return;
+        }
+
+        const tasks = await this.taskPlannerManager.getPendingTasks();
+        const storedTaskId = localStorage.getItem('chillpomodoro-active-focus-task');
+        if (!this.activeFocusTaskId && storedTaskId) {
+            this.activeFocusTaskId = parseInt(storedTaskId, 10);
+        }
+
+        select.innerHTML = '<option value="">Chọn task để gắn với phiên tập trung</option>' + tasks.map(task => `
+            <option value="${task.id}" ${this.activeFocusTaskId === task.id ? 'selected' : ''}>
+                ${task.title} (${task.subject})
+            </option>
+        `).join('');
+
+        const activeTask = tasks.find(task => task.id === this.activeFocusTaskId) || null;
+        if (!activeTask) {
+            summary.innerHTML = '<div class="text-muted">Chưa gắn task focus nào. Chọn một task để app ghi nhận Pomodoro theo mục tiêu học tập.</div>';
+            return;
+        }
+
+        summary.innerHTML = `
+            <div class="planner-task-title">${activeTask.title}</div>
+            <div class="planner-task-meta">${activeTask.subject} • ${activeTask.estimatedDuration} phút • ${this.getPriorityLabel(activeTask.priority)}</div>
+            <div class="planner-task-meta">Đã hoàn thành ${activeTask.completedPomodoros || 0}/${activeTask.plannedPomodoros || 1} Pomodoro</div>
+        `;
+    }
+
+    setActiveFocusTask(taskId) {
+        this.activeFocusTaskId = taskId;
+        if (taskId) {
+            localStorage.setItem('chillpomodoro-active-focus-task', String(taskId));
+            this.currentFocusSessionStart = new Date().toISOString();
+        } else {
+            localStorage.removeItem('chillpomodoro-active-focus-task');
+            this.currentFocusSessionStart = null;
+        }
+        this.renderFocusTaskOptions();
+    }
+
+    async handleTimerSessionComplete(detail) {
+        const session = detail?.session;
+        if (!session || session.type !== 'work' || !session.completed) {
+            return;
+        }
+
+        if (this.activeFocusTaskId) {
+            const updatedTask = await this.taskPlannerManager.completePomodoroForTask(
+                this.activeFocusTaskId,
+                session.duration || this.settings.workDuration,
+                {
+                    plannedMinutes: this.settings.workDuration,
+                    startedAt: this.currentFocusSessionStart,
+                    endedAt: new Date().toISOString(),
+                    date: formatDateKey(new Date())
+                }
+            );
+
+            if (updatedTask?.status === 'completed') {
+                this.showNotification(`Task "${updatedTask.title}" đã đạt mục tiêu thời gian`, 'success');
+                this.setActiveFocusTask(null);
+            }
+        }
+
+        await this.renderTaskPlanner();
+        this.updateStatistics();
+    }
+
+    async syncTasksFromSchedule(schedule) {
+        const activities = [
+            ...(schedule?.morningSchedule?.activities || []),
+            ...(schedule?.afternoonSchedule?.activities || [])
+        ];
+
+        for (const activity of activities) {
+            if (!activity.taskId) {
+                continue;
+            }
+
+            if (activity.status === 'completed') {
+                await this.taskPlannerManager.setTaskStatus(parseInt(activity.taskId, 10), 'completed');
+            } else if (activity.status === 'planned' || activity.status === 'in-progress') {
+                await this.taskPlannerManager.setTaskStatus(parseInt(activity.taskId, 10), 'in_progress');
+            }
+        }
+
+        await this.renderTaskPlanner();
+    }
+
+    async syncWorkoutSessionsFromSchedule(schedule) {
+        const activities = [
+            ...(schedule?.morningSchedule?.activities || []),
+            ...(schedule?.afternoonSchedule?.activities || [])
+        ];
+
+        let hasWorkoutSync = false;
+        for (const activity of activities) {
+            if (!activity.workoutSessionId) {
+                continue;
+            }
+
+            hasWorkoutSync = true;
+            if (activity.status === 'completed') {
+                await this.workoutManager.syncSessionStatus(parseInt(activity.workoutSessionId, 10), 'completed', 'daily-schedule');
+            } else if (activity.status === 'skipped') {
+                await this.workoutManager.syncSessionStatus(parseInt(activity.workoutSessionId, 10), 'skipped', 'daily-schedule');
+            } else {
+                await this.workoutManager.syncSessionStatus(parseInt(activity.workoutSessionId, 10), 'planned', 'daily-schedule');
+            }
+        }
+
+        if (hasWorkoutSync) {
+            this.exerciseSchedulesDirty = true;
+            await this.renderExerciseSchedules();
+            await this.updateStatistics();
+        }
+    }
+
+    getTaskStatusLabel(status) {
+        const labels = {
+            pending: '⏳ Chờ làm',
+            in_progress: '🔄 Đang làm',
+            completed: '✅ Hoàn thành'
+        };
+        return labels[status] || '⏳ Chờ làm';
+    }
+
+    getPriorityLabel(priority) {
+        const labels = {
+            high: 'Ưu tiên cao',
+            medium: 'Ưu tiên vừa',
+            low: 'Ưu tiên thấp'
+        };
+        return labels[priority] || 'Ưu tiên vừa';
     }
 
     /**
@@ -1515,15 +1916,33 @@ class ChillPomodoroApp {
 
         // Re-render libraries if switching to library tabs
         if (tabName === 'animations') {
-            this.libraryManager.renderAnimations();
-            this.populateDropdowns(); // Refresh dropdowns
+            if (this.libraryDirty) {
+                this.libraryManager.renderAnimations();
+                this.populateDropdowns();
+                this.libraryDirty = false;
+            }
         } else if (tabName === 'sounds') {
-            this.libraryManager.renderSounds();
-            this.populateDropdowns(); // Refresh dropdowns
+            if (this.libraryDirty) {
+                this.libraryManager.renderSounds();
+                this.populateDropdowns();
+                this.libraryDirty = false;
+            }
         } else if (tabName === 'presets') {
             this.presetManager.renderPresets();
         } else if (tabName === 'schedules') {
-            this.renderSchedules();
+            if (this.currentScheduleType === 'class') {
+                if (this.classSchedulesDirty) {
+                    this.renderSchedules();
+                }
+            } else if (this.currentScheduleType === 'life') {
+                if (this.dailySchedulesDirty) {
+                    this.renderDailySchedules();
+                }
+            } else if (this.currentScheduleType === 'exercise' && this.exerciseSchedulesDirty) {
+                this.renderExerciseSchedules();
+            }
+        } else if (tabName === 'planner') {
+            this.renderTaskPlanner();
         }
     }
 
@@ -1540,12 +1959,14 @@ class ChillPomodoroApp {
      */
     async toggleMusic() {
         this.audioManager.toggleBackgroundMusic();
+        this.renderPerTrackSliders();
     }
 
     /**
      * Save settings
      */
     saveSettings() {
+        this.settings.flushScheduledSave();
         this.settings.saveFromForm();
         this.backgroundManager.applyBackground();
 
@@ -1563,6 +1984,7 @@ class ChillPomodoroApp {
 
         // Update background type select
         this.populateBackgroundTypeSelect();
+        this.renderPerTrackSliders();
 
         this.showNotification('Cài đặt đã được lưu!', 'success');
     }
@@ -1574,6 +1996,7 @@ class ChillPomodoroApp {
         if (confirm('Bạn có chắc chắn muốn đặt lại tất cả cài đặt về mặc định?')) {
             this.settings.reset();
             this.settings.loadToForm();
+            this.renderPerTrackSliders();
             this.showNotification('Cài đặt đã được đặt lại!', 'success');
         }
     }
@@ -1609,7 +2032,7 @@ class ChillPomodoroApp {
     /**
      * Update statistics
      */
-    updateStatistics() {
+    async updateStatistics() {
         const stats = this.timer.getStatistics();
 
         // Update summary cards
@@ -1620,6 +2043,76 @@ class ChillPomodoroApp {
 
         // Update chart
         this.updateChart(stats.sessionHistory || []);
+
+        if (!this.taskPlannerManager) {
+            return;
+        }
+
+        const analytics = await this.taskPlannerManager.getAnalytics();
+        const goals = this.taskPlannerManager.getGoals();
+        const topSubject = analytics.bySubject[0];
+        const bestHour = analytics.byHour.sort((a, b) => b.minutes - a.minutes)[0];
+
+        const plannedVsActual = document.getElementById('plannedVsActual');
+        const topSubjectEl = document.getElementById('topStudySubject');
+        const bestHourEl = document.getElementById('bestFocusHour');
+        const plannerProgressEl = document.getElementById('plannerGoalProgress');
+        const analyticsList = document.getElementById('studyAnalyticsList');
+
+        if (plannedVsActual) {
+            plannedVsActual.textContent = `${analytics.actualMinutes}/${analytics.plannedMinutes || 0} phút`;
+        }
+        if (topSubjectEl) {
+            topSubjectEl.textContent = topSubject ? `${topSubject.subject} (${topSubject.minutes}m)` : 'Chưa có dữ liệu';
+        }
+        if (bestHourEl) {
+            bestHourEl.textContent = bestHour ? `${bestHour.hour}:00 (${bestHour.minutes}m)` : 'Chưa có dữ liệu';
+        }
+        if (plannerProgressEl) {
+            plannerProgressEl.textContent = `${analytics.completedTasks}/${Math.max(analytics.totalTasks, 1)} task • mục tiêu ${goals.dailyPomodoros} Pomodoro/ngày`;
+        }
+        if (analyticsList) {
+            analyticsList.innerHTML = analytics.bySubject.length === 0
+                ? '<div class="text-muted">Bắt đầu gắn task với phiên Pomodoro để xem analytics học tập.</div>'
+                : analytics.bySubject.map(item => `
+                    <div class="planner-due-item">
+                        <strong>${item.subject}</strong>
+                        <span>${item.minutes} phút tập trung</span>
+                    </div>
+                `).join('');
+        }
+
+        if (!this.workoutManager) {
+            return;
+        }
+
+        const workoutAnalytics = await this.workoutManager.getAnalytics();
+        const workoutCompletedThisWeek = document.getElementById('workoutCompletedThisWeek');
+        const workoutPlannedThisWeek = document.getElementById('workoutPlannedThisWeek');
+        const workoutAdherence = document.getElementById('workoutAdherence');
+        const topWorkoutMuscle = document.getElementById('topWorkoutMuscle');
+        const workoutAnalyticsList = document.getElementById('workoutAnalyticsList');
+        const workoutRecommendationsList = document.getElementById('workoutRecommendationsList');
+
+        if (workoutCompletedThisWeek) {
+            workoutCompletedThisWeek.textContent = workoutAnalytics.completedThisWeek || 0;
+        }
+        if (workoutPlannedThisWeek) {
+            workoutPlannedThisWeek.textContent = workoutAnalytics.plannedThisWeek || 0;
+        }
+        if (workoutAdherence) {
+            workoutAdherence.textContent = `${workoutAnalytics.adherence || 0}%`;
+        }
+        if (topWorkoutMuscle) {
+            const topMuscle = workoutAnalytics.topMuscles[0];
+            topWorkoutMuscle.textContent = topMuscle ? `${this.workoutRenderer.formatMuscle(topMuscle.muscle)} (${topMuscle.sets})` : 'Chưa có';
+        }
+        this.workoutRenderer.renderWorkoutAnalytics(workoutAnalyticsList, workoutAnalytics);
+        if (workoutRecommendationsList) {
+            workoutRecommendationsList.innerHTML = workoutAnalytics.recommendations.length === 0
+                ? '<div class="text-muted">Workout module sẽ tạo khuyến nghị sau khi có dữ liệu adherence và progression.</div>'
+                : workoutAnalytics.recommendations.map(item => `<div class="planner-due-item"><strong>Gợi ý</strong><span>${item}</span></div>`).join('');
+        }
     }
 
     /**
@@ -1746,17 +2239,7 @@ class ChillPomodoroApp {
      * Show notification
      */
     showNotification(message, type = 'info') {
-        const notification = document.getElementById('notification');
-        const text = document.getElementById('notificationText');
-
-        if (!notification || !text) return;
-
-        text.textContent = message;
-        notification.className = `notification ${type} show`;
-
-        setTimeout(() => {
-            notification.classList.remove('show');
-        }, 3000);
+        notificationService.show(message, type);
     }
 }
 

@@ -3,11 +3,22 @@
  */
 
 import { storageManager } from './StorageManager.js';
+import {
+    addMinutesToTime,
+    calculateDuration,
+    compareDateKeys,
+    formatDateKey,
+    parseDateKey,
+    subtractMinutesFromTime,
+    timeToMinutes
+} from '../utils/TimeUtils.js';
 
 export class DailyActivityManager {
     constructor(scheduleManager) {
         this.storageManager = storageManager;
         this.scheduleManager = scheduleManager; // Để lấy class schedule
+        this.dailyScheduleCache = new Map();
+        this.dailyScheduleListCache = null;
     }
 
     /**
@@ -146,38 +157,28 @@ export class DailyActivityManager {
      * Chuyển đổi thời gian thành phút
      */
     timeToMinutes(timeStr) {
-        if (!timeStr || typeof timeStr !== 'string') {
-            throw new Error('Invalid time string');
-        }
-        const [hours, minutes] = timeStr.split(':').map(Number);
-        if (isNaN(hours) || isNaN(minutes)) {
-            throw new Error('Invalid time format');
-        }
-        return hours * 60 + minutes;
+        return timeToMinutes(timeStr);
     }
 
     /**
      * Cộng phút vào thời gian
      */
     addMinutes(timeStr, minutes) {
-        const totalMinutes = this.timeToMinutes(timeStr) + minutes;
-        const hours = Math.floor(totalMinutes / 60);
-        const mins = totalMinutes % 60;
-        return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+        return addMinutesToTime(timeStr, minutes);
     }
 
     /**
      * Trừ phút từ thời gian
      */
     subtractMinutes(timeStr, minutes) {
-        return this.addMinutes(timeStr, -minutes);
+        return subtractMinutesFromTime(timeStr, minutes);
     }
 
     /**
      * Tính duration giữa 2 thời điểm (phút)
      */
     calculateDuration(startTime, endTime) {
-        return this.timeToMinutes(endTime) - this.timeToMinutes(startTime);
+        return calculateDuration(startTime, endTime);
     }
 
     /**
@@ -280,6 +281,8 @@ export class DailyActivityManager {
                 throw new Error('Failed to save schedule to database');
             }
             
+            this.dailyScheduleCache.set(dateStr, schedule);
+            this.dailyScheduleListCache = null;
             return schedule;
         } catch (error) {
             console.error('Error saving schedule to IndexedDB:', error);
@@ -292,17 +295,34 @@ export class DailyActivityManager {
      */
     async getDailyActivitySchedule(date) {
         const dateStr = this.formatDate(date);
-        const schedules = await this.storageManager.getAllItems('schedules');
-        return schedules.find(s => s.type === 'daily-activity' && s.date === dateStr);
+        if (this.dailyScheduleCache.has(dateStr)) {
+            return this.dailyScheduleCache.get(dateStr);
+        }
+
+        const schedule = await this.storageManager.getScheduleByTypeAndDate('daily-activity', dateStr);
+        if (schedule) {
+            this.dailyScheduleCache.set(dateStr, schedule);
+        }
+        return schedule;
     }
 
     /**
      * Lấy tất cả daily activity schedules
      */
     async getAllDailyActivitySchedules() {
-        const schedules = await this.storageManager.getAllItems('schedules');
-        return schedules.filter(s => s.type === 'daily-activity')
-            .sort((a, b) => new Date(b.date) - new Date(a.date));
+        if (this.dailyScheduleListCache) {
+            return this.dailyScheduleListCache;
+        }
+
+        const schedules = await this.storageManager.getSchedulesByType('daily-activity');
+        this.dailyScheduleListCache = schedules.sort((a, b) => compareDateKeys(a.date, b.date));
+        this.dailyScheduleListCache.forEach(schedule => {
+            if (schedule?.date) {
+                this.dailyScheduleCache.set(schedule.date, schedule);
+            }
+        });
+
+        return this.dailyScheduleListCache;
     }
 
     /**
@@ -338,6 +358,10 @@ export class DailyActivityManager {
         schedule.updatedAt = new Date().toISOString();
         
         await this.storageManager.updateItem('schedules', schedule);
+        if (schedule.date) {
+            this.dailyScheduleCache.set(schedule.date, schedule);
+        }
+        this.dailyScheduleListCache = null;
         return schedule;
     }
 
@@ -345,24 +369,26 @@ export class DailyActivityManager {
      * Format date to YYYY-MM-DD
      */
     formatDate(date) {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
+        return formatDateKey(date);
     }
 
     /**
      * Parse date from YYYY-MM-DD
      */
     parseDate(dateStr) {
-        return new Date(dateStr + 'T00:00:00');
+        return parseDateKey(dateStr);
     }
 
     /**
      * Xóa daily activity schedule
      */
     async deleteDailyActivitySchedule(id) {
+        const schedule = await this.storageManager.getItem('schedules', id);
         await this.storageManager.deleteItem('schedules', id);
+        if (schedule?.date) {
+            this.dailyScheduleCache.delete(schedule.date);
+        }
+        this.dailyScheduleListCache = null;
     }
 }
 

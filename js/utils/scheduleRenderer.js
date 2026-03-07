@@ -2,6 +2,13 @@
  * ScheduleRenderer - Render schedule table UI
  */
 
+// Silence verbose debug noise while preserving real errors.
+const console = {
+    ...globalThis.console,
+    log: () => {},
+    warn: () => {}
+};
+
 export class ScheduleRenderer {
     constructor(scheduleManager) {
         this.scheduleManager = scheduleManager;
