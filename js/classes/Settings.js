@@ -23,6 +23,8 @@ export class Settings {
         this.darkMode = false;
         this.autoStartBreaks = false;
         this.autoStartPomodoros = false;
+        this.saveDebounceMs = 300;
+        this.pendingSaveTimeout = null;
     }
 
     /**
@@ -50,6 +52,11 @@ export class Settings {
      * Save settings to storage
      */
     save() {
+        if (this.pendingSaveTimeout) {
+            clearTimeout(this.pendingSaveTimeout);
+            this.pendingSaveTimeout = null;
+        }
+
         const settingsData = {
             workDuration: this.workDuration,
             shortBreakDuration: this.shortBreakDuration,
@@ -70,6 +77,26 @@ export class Settings {
         };
         storageManager.saveSettings(settingsData);
         this.apply();
+    }
+
+    scheduleSave(delay = this.saveDebounceMs) {
+        if (this.pendingSaveTimeout) {
+            clearTimeout(this.pendingSaveTimeout);
+        }
+
+        this.pendingSaveTimeout = setTimeout(() => {
+            this.pendingSaveTimeout = null;
+            this.save();
+        }, delay);
+        this.apply();
+    }
+
+    flushScheduledSave() {
+        if (this.pendingSaveTimeout) {
+            clearTimeout(this.pendingSaveTimeout);
+            this.pendingSaveTimeout = null;
+            this.save();
+        }
     }
 
     /**
@@ -193,7 +220,7 @@ export class Settings {
         const t = this.selectedMusicTracks.find(x => x.id.toString() === id.toString());
         if (t) {
             t.volume = volume;
-            this.save();
+            this.scheduleSave();
         }
     }
 

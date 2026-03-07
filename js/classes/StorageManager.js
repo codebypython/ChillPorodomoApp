@@ -3,10 +3,17 @@
  * Manages localStorage and IndexedDB for different data types
  */
 
+// Silence verbose debug noise while preserving real errors.
+const console = {
+    ...globalThis.console,
+    log: () => {},
+    warn: () => {}
+};
+
 export class StorageManager {
     constructor() {
         this.dbName = 'ChillPomodoroApp';
-        this.dbVersion = 2;
+        this.dbVersion = 5;
         this.db = null;
         this.initPromise = this.initDB();
     }
@@ -25,38 +32,136 @@ export class StorageManager {
 
             request.onsuccess = () => {
                 this.db = request.result;
-                console.log('IndexedDB initialized successfully');
                 resolve(this.db);
             };
 
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
+                const transaction = event.target.transaction;
+                const ensureIndex = (store, indexName, keyPath, options = { unique: false }) => {
+                    if (!store.indexNames.contains(indexName)) {
+                        store.createIndex(indexName, keyPath, options);
+                    }
+                };
 
                 // Create object stores if they don't exist
                 if (!db.objectStoreNames.contains('animations')) {
                     const animationStore = db.createObjectStore('animations', { keyPath: 'id', autoIncrement: true });
                     animationStore.createIndex('name', 'name', { unique: false });
                     animationStore.createIndex('type', 'type', { unique: false });
+                } else if (transaction) {
+                    const animationStore = transaction.objectStore('animations');
+                    ensureIndex(animationStore, 'name', 'name');
+                    ensureIndex(animationStore, 'type', 'type');
                 }
 
                 if (!db.objectStoreNames.contains('sounds')) {
                     const soundStore = db.createObjectStore('sounds', { keyPath: 'id', autoIncrement: true });
                     soundStore.createIndex('name', 'name', { unique: false });
+                } else if (transaction) {
+                    const soundStore = transaction.objectStore('sounds');
+                    ensureIndex(soundStore, 'name', 'name');
                 }
 
                 if (!db.objectStoreNames.contains('presets')) {
                     const presetStore = db.createObjectStore('presets', { keyPath: 'id', autoIncrement: true });
                     presetStore.createIndex('name', 'name', { unique: false });
+                } else if (transaction) {
+                    const presetStore = transaction.objectStore('presets');
+                    ensureIndex(presetStore, 'name', 'name');
                 }
 
                 if (!db.objectStoreNames.contains('schedules')) {
                     const scheduleStore = db.createObjectStore('schedules', { keyPath: 'id', autoIncrement: true });
                     scheduleStore.createIndex('name', 'name', { unique: false });
                     scheduleStore.createIndex('type', 'type', { unique: false });
+                    scheduleStore.createIndex('date', 'date', { unique: false });
+                    scheduleStore.createIndex('type_date', ['type', 'date'], { unique: false });
                     scheduleStore.createIndex('createdAt', 'createdAt', { unique: false });
+                } else if (transaction) {
+                    const scheduleStore = transaction.objectStore('schedules');
+                    ensureIndex(scheduleStore, 'name', 'name');
+                    ensureIndex(scheduleStore, 'type', 'type');
+                    ensureIndex(scheduleStore, 'date', 'date');
+                    ensureIndex(scheduleStore, 'type_date', ['type', 'date']);
+                    ensureIndex(scheduleStore, 'createdAt', 'createdAt');
                 }
 
-                console.log('IndexedDB object stores created');
+                if (!db.objectStoreNames.contains('studyTasks')) {
+                    const taskStore = db.createObjectStore('studyTasks', { keyPath: 'id', autoIncrement: true });
+                    taskStore.createIndex('status', 'status', { unique: false });
+                    taskStore.createIndex('subject', 'subject', { unique: false });
+                    taskStore.createIndex('deadline', 'deadline', { unique: false });
+                    taskStore.createIndex('targetDate', 'targetDate', { unique: false });
+                    taskStore.createIndex('createdAt', 'createdAt', { unique: false });
+                } else if (transaction) {
+                    const taskStore = transaction.objectStore('studyTasks');
+                    ensureIndex(taskStore, 'status', 'status');
+                    ensureIndex(taskStore, 'subject', 'subject');
+                    ensureIndex(taskStore, 'deadline', 'deadline');
+                    ensureIndex(taskStore, 'targetDate', 'targetDate');
+                    ensureIndex(taskStore, 'createdAt', 'createdAt');
+                }
+
+                if (!db.objectStoreNames.contains('focusSessions')) {
+                    const focusStore = db.createObjectStore('focusSessions', { keyPath: 'id', autoIncrement: true });
+                    focusStore.createIndex('taskId', 'taskId', { unique: false });
+                    focusStore.createIndex('date', 'date', { unique: false });
+                    focusStore.createIndex('subject', 'subject', { unique: false });
+                    focusStore.createIndex('completed', 'completed', { unique: false });
+                    focusStore.createIndex('createdAt', 'createdAt', { unique: false });
+                } else if (transaction) {
+                    const focusStore = transaction.objectStore('focusSessions');
+                    ensureIndex(focusStore, 'taskId', 'taskId');
+                    ensureIndex(focusStore, 'date', 'date');
+                    ensureIndex(focusStore, 'subject', 'subject');
+                    ensureIndex(focusStore, 'completed', 'completed');
+                    ensureIndex(focusStore, 'createdAt', 'createdAt');
+                }
+
+                if (!db.objectStoreNames.contains('exerciseLibrary')) {
+                    const exerciseStore = db.createObjectStore('exerciseLibrary', { keyPath: 'id', autoIncrement: true });
+                    exerciseStore.createIndex('slug', 'slug', { unique: true });
+                    exerciseStore.createIndex('primaryFocus', 'primaryFocus', { unique: false });
+                    exerciseStore.createIndex('difficulty', 'difficulty', { unique: false });
+                    exerciseStore.createIndex('createdAt', 'createdAt', { unique: false });
+                } else if (transaction) {
+                    const exerciseStore = transaction.objectStore('exerciseLibrary');
+                    ensureIndex(exerciseStore, 'slug', 'slug', { unique: true });
+                    ensureIndex(exerciseStore, 'primaryFocus', 'primaryFocus');
+                    ensureIndex(exerciseStore, 'difficulty', 'difficulty');
+                    ensureIndex(exerciseStore, 'createdAt', 'createdAt');
+                }
+
+                if (!db.objectStoreNames.contains('workoutPrograms')) {
+                    const workoutProgramStore = db.createObjectStore('workoutPrograms', { keyPath: 'id', autoIncrement: true });
+                    workoutProgramStore.createIndex('name', 'name', { unique: false });
+                    workoutProgramStore.createIndex('templateId', 'templateId', { unique: false });
+                    workoutProgramStore.createIndex('isArchived', 'isArchived', { unique: false });
+                    workoutProgramStore.createIndex('createdAt', 'createdAt', { unique: false });
+                } else if (transaction) {
+                    const workoutProgramStore = transaction.objectStore('workoutPrograms');
+                    ensureIndex(workoutProgramStore, 'name', 'name');
+                    ensureIndex(workoutProgramStore, 'templateId', 'templateId');
+                    ensureIndex(workoutProgramStore, 'isArchived', 'isArchived');
+                    ensureIndex(workoutProgramStore, 'createdAt', 'createdAt');
+                }
+
+                if (!db.objectStoreNames.contains('workoutSessions')) {
+                    const workoutSessionStore = db.createObjectStore('workoutSessions', { keyPath: 'id', autoIncrement: true });
+                    workoutSessionStore.createIndex('programId', 'programId', { unique: false });
+                    workoutSessionStore.createIndex('scheduledDate', 'scheduledDate', { unique: false });
+                    workoutSessionStore.createIndex('status', 'status', { unique: false });
+                    workoutSessionStore.createIndex('dayFocus', 'dayFocus', { unique: false });
+                    workoutSessionStore.createIndex('createdAt', 'createdAt', { unique: false });
+                } else if (transaction) {
+                    const workoutSessionStore = transaction.objectStore('workoutSessions');
+                    ensureIndex(workoutSessionStore, 'programId', 'programId');
+                    ensureIndex(workoutSessionStore, 'scheduledDate', 'scheduledDate');
+                    ensureIndex(workoutSessionStore, 'status', 'status');
+                    ensureIndex(workoutSessionStore, 'dayFocus', 'dayFocus');
+                    ensureIndex(workoutSessionStore, 'createdAt', 'createdAt');
+                }
             };
         });
     }
@@ -196,10 +301,13 @@ export class StorageManager {
         // Clear localStorage
         localStorage.removeItem('chillpomodoro-settings');
         localStorage.removeItem('chillpomodoro-state');
+        localStorage.removeItem('chillpomodoro-hidden-time');
+        localStorage.removeItem('chillpomodoro-active-focus-task');
+        localStorage.removeItem('chillpomodoro-study-goals');
 
         // Clear IndexedDB
         await this.ensureDB();
-        const stores = ['animations', 'sounds', 'presets', 'schedules'];
+        const stores = ['animations', 'sounds', 'presets', 'schedules', 'studyTasks', 'focusSessions', 'exerciseLibrary', 'workoutPrograms', 'workoutSessions'];
 
         for (const storeName of stores) {
             await this.clearStore(storeName);
@@ -280,6 +388,30 @@ export class StorageManager {
     }
 
     /**
+     * Get all items matching an index value
+     */
+    async getItemsByIndex(storeName, indexName, value) {
+        await this.ensureDB();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            const store = transaction.objectStore(storeName);
+            const index = store.index(indexName);
+            const request = index.getAll(value);
+
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    /**
+     * Get first item matching an index value
+     */
+    async getFirstItemByIndex(storeName, indexName, value) {
+        const items = await this.getItemsByIndex(storeName, indexName, value);
+        return items[0] || null;
+    }
+
+    /**
      * Update item in IndexedDB store
      */
     async updateItem(storeName, item) {
@@ -307,6 +439,50 @@ export class StorageManager {
             request.onsuccess = () => resolve();
             request.onerror = () => reject(request.error);
         });
+    }
+
+    /**
+     * Schedule-specific indexed queries
+     */
+    async getSchedulesByType(type) {
+        return this.getItemsByIndex('schedules', 'type', type);
+    }
+
+    async getScheduleByTypeAndDate(type, date) {
+        return this.getFirstItemByIndex('schedules', 'type_date', [type, date]);
+    }
+
+    async getStudyTasksByStatus(status) {
+        return this.getItemsByIndex('studyTasks', 'status', status);
+    }
+
+    async getFocusSessionsByTask(taskId) {
+        return this.getItemsByIndex('focusSessions', 'taskId', taskId);
+    }
+
+    async getExerciseBySlug(slug) {
+        return this.getFirstItemByIndex('exerciseLibrary', 'slug', slug);
+    }
+
+    async getWorkoutPrograms() {
+        return this.getAllItems('workoutPrograms');
+    }
+
+    async getActiveWorkoutPrograms() {
+        const programs = await this.getWorkoutPrograms();
+        return programs.filter(program => !program.isArchived);
+    }
+
+    async getWorkoutSessionsByDate(scheduledDate) {
+        return this.getItemsByIndex('workoutSessions', 'scheduledDate', scheduledDate);
+    }
+
+    async getWorkoutSessionsByStatus(status) {
+        return this.getItemsByIndex('workoutSessions', 'status', status);
+    }
+
+    async getWorkoutSessionsByProgram(programId) {
+        return this.getItemsByIndex('workoutSessions', 'programId', programId);
     }
 
     // ===== Helper Methods for File Handling =====
@@ -371,8 +547,14 @@ export class StorageManager {
         const sounds = await this.getAllItems('sounds');
         const presets = await this.getAllItems('presets');
         const schedules = await this.getAllItems('schedules');
+        const studyTasks = await this.getAllItems('studyTasks');
+        const focusSessions = await this.getAllItems('focusSessions');
+        const exerciseLibrary = await this.getAllItems('exerciseLibrary');
+        const workoutPrograms = await this.getAllItems('workoutPrograms');
+        const workoutSessions = await this.getAllItems('workoutSessions');
         const settings = this.getSettings();
         const state = this.getTimerState();
+        const studyGoals = localStorage.getItem('chillpomodoro-study-goals');
 
         // Convert Blobs to Base64 for export
         const exportAnimations = await Promise.all(animations.map(async (item) => {
@@ -402,6 +584,12 @@ export class StorageManager {
             sounds: exportSounds,
             presets,
             schedules,
+            studyTasks,
+            focusSessions,
+            exerciseLibrary,
+            workoutPrograms,
+            workoutSessions,
+            studyGoals: studyGoals ? JSON.parse(studyGoals) : null,
             settings,
             state,
             exportDate: new Date().toISOString(),

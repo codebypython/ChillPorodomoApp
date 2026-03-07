@@ -5,6 +5,13 @@
 import { storageManager } from './StorageManager.js';
 import { XLSXParser } from './XLSXParser.js';
 
+// Silence verbose debug noise while preserving real errors.
+const console = {
+    ...globalThis.console,
+    log: () => {},
+    warn: () => {}
+};
+
 export class ScheduleManager {
     constructor() {
         this.storageManager = storageManager;
@@ -23,7 +30,9 @@ export class ScheduleManager {
      */
     async loadSchedules() {
         try {
-            this.schedules = await this.storageManager.getAllItems('schedules');
+            const classSchedules = await this.storageManager.getSchedulesByType('class');
+            const nonClassSchedules = this.schedules.filter(schedule => schedule.type !== 'class');
+            this.schedules = [...classSchedules, ...nonClassSchedules];
             return this.schedules;
         } catch (error) {
             console.error('Error loading schedules:', error);
@@ -337,72 +346,54 @@ export class ScheduleManager {
         let skippedCount = 0;
 
         for (const course of courses) {
-            if (!course.scheduleInfo) {
+            if (!course.scheduleInfo || !Array.isArray(course.scheduleInfo)) {
                 console.warn(`Course "${course.name}" missing scheduleInfo`);
                 skippedCount++;
                 continue;
             }
 
-            const day = course.scheduleInfo.day; // 2-7 (Monday-Saturday)
-            const periods = course.scheduleInfo.periods;
+            for (const entry of course.scheduleInfo) {
+                const day = entry.day;
+                const periods = entry.periods;
 
-            // Validate day
-            if (!day || day < 2 || day > 7) {
-                console.warn(`Course "${course.name}" has invalid day: ${day}`);
-                skippedCount++;
-                continue;
-            }
+                // Validate day
+                if (!day || day < 2 || day > 7) {
+                    console.warn(`Course "${course.name}" has invalid day: ${day}`);
+                    skippedCount++;
+                    continue;
+                }
 
-            // Validate periods
-            if (!periods || periods.length === 0) {
-                console.warn(`Course "${course.name}" has no periods`);
-                skippedCount++;
-                continue;
-            }
+                // Validate periods
+                if (!periods || periods.length === 0) {
+                    console.warn(`Course "${course.name}" has no periods`);
+                    skippedCount++;
+                    continue;
+                }
 
-            // Adjust day index (day 2 = index 0, day 3 = index 1, ..., day 7 = index 5)
-            const dayIndex = day - 2;
-            if (dayIndex < 0 || dayIndex >= 6) {
-                console.warn(`Course "${course.name}" has invalid dayIndex: ${dayIndex} (day: ${day})`);
-                skippedCount++;
-                continue;
-            }
+                // Adjust day index (day 2 = index 0, day 3 = index 1, ..., day 7 = index 5)
+                const dayIndex = day - 2;
+                if (dayIndex < 0 || dayIndex >= 6) {
+                    console.warn(`Course "${course.name}" has invalid dayIndex: ${dayIndex} (day: ${day})`);
+                    skippedCount++;
+                    continue;
+                }
 
-            // Add course to each period
-            for (const period of periods) {
-                // Periods are 1-10, array index is 0-9
-                const periodIndex = period - 1;
-                if (periodIndex >= 0 && periodIndex < 10) {
-                    // Debug: Log before adding
-                    console.log(`Adding course "${course.name}" to Period ${period} (index ${periodIndex}), Day ${day} (index ${dayIndex})`);
-                    
-                    // CRITICAL: Verify array structure before push
-                    if (!Array.isArray(schedule[periodIndex])) {
-                        console.error(`ERROR: Period ${periodIndex} is not an array!`, schedule[periodIndex]);
-                        continue;
+                // Add course to each period
+                for (const period of periods) {
+                    const periodIndex = period - 1;
+                    if (periodIndex >= 0 && periodIndex < 10) {
+                        if (!Array.isArray(schedule[periodIndex])) {
+                            console.error(`ERROR: Period ${periodIndex} is not an array!`, schedule[periodIndex]);
+                            continue;
+                        }
+                        if (!Array.isArray(schedule[periodIndex][dayIndex])) {
+                            console.error(`ERROR: Period ${periodIndex}, Day ${dayIndex} is not an array!`, schedule[periodIndex][dayIndex]);
+                            continue;
+                        }
+
+                        schedule[periodIndex][dayIndex].push({ ...course });
+                        processedCount++;
                     }
-                    if (!Array.isArray(schedule[periodIndex][dayIndex])) {
-                        console.error(`ERROR: Period ${periodIndex}, Day ${dayIndex} is not an array!`, schedule[periodIndex][dayIndex]);
-                        continue;
-                    }
-                    
-                    // Push course - create a copy to avoid reference issues
-                    const courseCopy = { ...course };
-                    schedule[periodIndex][dayIndex].push(courseCopy);
-                    processedCount++;
-                    
-                    // Debug: Verify after adding
-                    const verifyCount = schedule[periodIndex][dayIndex].length;
-                    const verifyNames = schedule[periodIndex][dayIndex].map(c => c.name).join(', ');
-                    console.log(`  -> Verified: Period ${periodIndex}, Day ${dayIndex} now has ${verifyCount} course(s): ${verifyNames}`);
-                    
-                    // Double check: verify the course is actually in the array
-                    const found = schedule[periodIndex][dayIndex].find(c => c.name === course.name);
-                    if (!found) {
-                        console.error(`ERROR: Course "${course.name}" was not found after push!`);
-                    }
-                } else {
-                    console.warn(`Course "${course.name}" has invalid period: ${period}`);
                 }
             }
         }

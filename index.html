@@ -166,6 +166,10 @@
                 <span class="tab-icon">⚙️</span>
                 <span class="tab-label">Settings</span>
             </button>
+            <button class="nav-tab" data-tab="planner">
+                <span class="tab-icon">🧠</span>
+                <span class="tab-label">Planner</span>
+            </button>
             <button class="nav-tab" data-tab="stats">
                 <span class="tab-icon">📊</span>
                 <span class="tab-label">Stats</span>
@@ -221,6 +225,20 @@
                             <button class="quick-btn" data-action="work" data-time="15">15 phút</button>
                             <button class="quick-btn" data-action="work" data-time="25">25 phút</button>
                             <button class="quick-btn" data-action="work" data-time="45">45 phút</button>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>🎯 Smart Focus</h3>
+                        <div class="setting-item">
+                            <label for="focusTaskSelect">Task gắn với phiên tập trung</label>
+                            <select id="focusTaskSelect">
+                                <option value="">Chọn task để theo dõi</option>
+                            </select>
+                        </div>
+                        <div id="focusTaskSummary" class="text-muted"></div>
+                        <div class="settings-actions" style="margin-top: 1rem;">
+                            <button id="clearFocusTaskBtn" class="btn-action secondary">Xóa task focus hiện tại</button>
                         </div>
                     </div>
                 </div>
@@ -301,7 +319,7 @@
                         <button class="schedule-type-btn" data-type="life">
                             🏠 Lịch Sinh Hoạt
                         </button>
-                        <button class="schedule-type-btn" data-type="exercise" disabled title="Sắp có">
+                        <button class="schedule-type-btn" data-type="exercise">
                             💪 Lịch Tập Luyện
                         </button>
                     </div>
@@ -326,6 +344,11 @@
                         </button>
                     </div>
 
+                    <!-- Exercise Schedule Actions -->
+                    <div id="exerciseScheduleActions" class="schedule-actions" style="display: none;">
+                        <div id="exerciseProgramBuilder" class="w-100"></div>
+                    </div>
+
                     <!-- Class Schedule List -->
                     <div id="scheduleList" class="schedule-list">
                         <!-- Danh sách lịch đã tạo -->
@@ -344,6 +367,21 @@
                     <!-- Daily Activity Schedule Container -->
                     <div id="dailyScheduleContainer" class="daily-schedule-container" style="display: none;">
                         <!-- Lịch sinh hoạt -->
+                    </div>
+
+                    <!-- Exercise Program List -->
+                    <div id="exerciseProgramList" class="schedule-list" style="display: none;">
+                        <!-- Danh sách lịch tập -->
+                    </div>
+
+                    <!-- Exercise Session List -->
+                    <div id="exerciseSessionList" class="schedule-list" style="display: none;">
+                        <!-- Danh sách buổi tập -->
+                    </div>
+
+                    <!-- Exercise Schedule Container -->
+                    <div id="exerciseScheduleContainer" class="daily-schedule-container" style="display: none;">
+                        <!-- Chi tiết lịch tập -->
                     </div>
                 </div>
             </div>
@@ -442,6 +480,91 @@
                 </div>
             </div>
 
+            <!-- Planner Tab -->
+            <div id="planner-tab" class="tab-content">
+                <div class="settings-container">
+                    <h2>Study Planner</h2>
+
+                    <div class="settings-section">
+                        <h3>📝 Tạo Task Học Tập</h3>
+                        <div class="setting-item">
+                            <label>Tên task</label>
+                            <input type="text" id="plannerTaskTitle" placeholder="Ví dụ: Ôn chương 3, làm đề cương, luyện bài tập">
+                        </div>
+                        <div class="setting-item">
+                            <label>Môn học</label>
+                            <input type="text" id="plannerTaskSubject" placeholder="Ví dụ: Giải tích, OOP, IELTS">
+                        </div>
+                        <div class="setting-item">
+                            <label>Thời lượng dự kiến (phút)</label>
+                            <input type="number" id="plannerTaskDuration" min="15" step="15" value="45">
+                        </div>
+                        <div class="setting-item">
+                            <label>Số Pomodoro mục tiêu</label>
+                            <input type="number" id="plannerTaskPomodoros" min="1" max="12" value="1">
+                        </div>
+                        <div class="setting-item">
+                            <label>Deadline</label>
+                            <input type="date" id="plannerTaskDeadline">
+                        </div>
+                        <div class="setting-item">
+                            <label>Ngày muốn làm</label>
+                            <input type="date" id="plannerTaskTargetDate">
+                        </div>
+                        <div class="setting-item">
+                            <label>Ưu tiên</label>
+                            <select id="plannerTaskPriority">
+                                <option value="high">Cao</option>
+                                <option value="medium" selected>Trung bình</option>
+                                <option value="low">Thấp</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Mức tập trung cần thiết</label>
+                            <select id="plannerTaskFocusLevel">
+                                <option value="high">Cao</option>
+                                <option value="medium" selected>Trung bình</option>
+                                <option value="low">Thấp</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Ghi chú</label>
+                            <textarea id="plannerTaskNotes" placeholder="Ví dụ: ưu tiên trước buổi học, cần làm trong khung giờ yên tĩnh"></textarea>
+                        </div>
+                        <div class="settings-actions">
+                            <button id="plannerAddTaskBtn" class="btn-action primary">➕ Thêm task</button>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>🎯 Mục Tiêu Học Tập</h3>
+                        <div class="setting-item">
+                            <label>Pomodoro mục tiêu mỗi ngày</label>
+                            <input type="number" id="plannerDailyPomodoros" min="1" max="20" value="4">
+                        </div>
+                        <div class="setting-item">
+                            <label>Phút học mục tiêu mỗi tuần</label>
+                            <input type="number" id="plannerWeeklyMinutes" min="60" step="30" value="600">
+                        </div>
+                        <div class="settings-actions">
+                            <button id="plannerSaveGoalsBtn" class="btn-action secondary">💾 Lưu mục tiêu</button>
+                        </div>
+                    </div>
+
+                    <div class="stats-summary" id="plannerSummary"></div>
+
+                    <div class="settings-section">
+                        <h3>📌 Task Cận Hạn</h3>
+                        <div id="plannerDueSoon" class="library-grid"></div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>📚 Danh Sách Task</h3>
+                        <div id="plannerTaskList" class="library-grid"></div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Stats Tab -->
             <div id="stats-tab" class="tab-content">
                 <div class="stats-container">
@@ -473,6 +596,67 @@
                     <div class="stats-chart">
                         <h3>Hoạt động 7 ngày qua</h3>
                         <canvas id="activityChart" width="800" height="400"></canvas>
+                    </div>
+
+                    <div class="stats-summary">
+                        <div class="stat-card">
+                            <div class="stat-icon">📈</div>
+                            <div class="stat-value" id="plannedVsActual">0/0 phút</div>
+                            <div class="stat-label">Planned vs Actual</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">🏆</div>
+                            <div class="stat-value" id="topStudySubject">Chưa có</div>
+                            <div class="stat-label">Môn học nổi bật</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">🕒</div>
+                            <div class="stat-value" id="bestFocusHour">Chưa có</div>
+                            <div class="stat-label">Khung giờ hiệu quả</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">🎯</div>
+                            <div class="stat-value" id="plannerGoalProgress">0/0</div>
+                            <div class="stat-label">Tiến độ mục tiêu</div>
+                        </div>
+                    </div>
+
+                    <div class="stats-chart">
+                        <h3>Study Analytics</h3>
+                        <div id="studyAnalyticsList"></div>
+                    </div>
+
+                    <div class="stats-summary">
+                        <div class="stat-card">
+                            <div class="stat-icon">🏋️</div>
+                            <div class="stat-value" id="workoutCompletedThisWeek">0</div>
+                            <div class="stat-label">Buổi tập hoàn thành tuần này</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">📆</div>
+                            <div class="stat-value" id="workoutPlannedThisWeek">0</div>
+                            <div class="stat-label">Buổi tập được lên lịch</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">📈</div>
+                            <div class="stat-value" id="workoutAdherence">0%</div>
+                            <div class="stat-label">Adherence workout</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">💪</div>
+                            <div class="stat-value" id="topWorkoutMuscle">Chưa có</div>
+                            <div class="stat-label">Nhóm cơ nổi bật</div>
+                        </div>
+                    </div>
+
+                    <div class="stats-chart">
+                        <h3>Workout Analytics</h3>
+                        <div id="workoutAnalyticsList"></div>
+                    </div>
+
+                    <div class="stats-chart">
+                        <h3>Adaptive Recommendations</h3>
+                        <div id="workoutRecommendationsList"></div>
                     </div>
 
                     <div class="stats-actions">

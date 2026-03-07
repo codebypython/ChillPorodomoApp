@@ -4,6 +4,7 @@
  */
 
 import { storageManager } from './StorageManager.js';
+import { notificationService } from '../services/NotificationService.js';
 
 export class PresetManager {
     constructor(settings, backgroundManager, audioManager) {
@@ -41,6 +42,7 @@ export class PresetManager {
                     backgroundOpacity: this.settings.backgroundOpacity,
                     backgroundMusicType: this.settings.backgroundMusicType,
                     backgroundMusicVolume: this.settings.backgroundMusicVolume,
+                    selectedMusicTracks: this.settings.selectedMusicTracks,
                     enableBackgroundMusic: this.settings.enableBackgroundMusic,
                     notificationVolume: this.settings.notificationVolume,
                     autoStartBreaks: this.settings.autoStartBreaks,
@@ -71,6 +73,13 @@ export class PresetManager {
 
             // Apply settings
             Object.assign(this.settings, preset.settings);
+            if (!Array.isArray(this.settings.selectedMusicTracks)) {
+                this.settings.selectedMusicTracks = [];
+            }
+
+            if (this.settings.selectedMusicTracks.length > 0) {
+                this.settings.backgroundMusicType = this.settings.selectedMusicTracks[0].id?.toString() || 'none';
+            }
             this.settings.save();
 
             // Apply background
@@ -81,7 +90,7 @@ export class PresetManager {
             // Apply music
             if (this.audioManager) {
                 if (preset.settings.enableBackgroundMusic) {
-                    await this.audioManager.startBackgroundMusic(preset.settings.backgroundMusicType);
+                    await this.audioManager.startBackgroundMusic();
                 } else {
                     this.audioManager.stopBackgroundMusic();
                 }
@@ -143,16 +152,28 @@ export class PresetManager {
                         <div class="library-item-meta">Đã lưu ${date}</div>
                     </div>
                     <div class="library-item-actions">
-                        <button class="item-btn use" onclick="window.presetManager.loadPreset(${preset.id})">
+                        <button class="item-btn use" data-action="load-preset" data-id="${preset.id}">
                             Tải
                         </button>
-                        <button class="item-btn delete" onclick="window.presetManager.confirmDelete(${preset.id})">
+                        <button class="item-btn delete" data-action="delete-preset" data-id="${preset.id}">
                             Xóa
                         </button>
                     </div>
                 </div>
             `;
         }).join('');
+
+        container.querySelectorAll('[data-action="load-preset"]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.loadPreset(parseInt(button.dataset.id, 10));
+            });
+        });
+
+        container.querySelectorAll('[data-action="delete-preset"]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.confirmDelete(parseInt(button.dataset.id, 10));
+            });
+        });
     }
 
     /**
@@ -240,17 +261,7 @@ export class PresetManager {
      * Show notification
      */
     showNotification(message, type = 'info') {
-        const notification = document.getElementById('notification');
-        const text = document.getElementById('notificationText');
-
-        if (!notification || !text) return;
-
-        text.textContent = message;
-        notification.className = `notification ${type} show`;
-
-        setTimeout(() => {
-            notification.classList.remove('show');
-        }, 3000);
+        notificationService.show(message, type);
     }
 }
 

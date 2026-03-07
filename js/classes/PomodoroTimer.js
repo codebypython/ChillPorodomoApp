@@ -4,6 +4,7 @@
  */
 
 import { storageManager } from './StorageManager.js';
+import { notificationService } from '../services/NotificationService.js';
 
 export class PomodoroTimer {
     constructor(settings, audioManager) {
@@ -22,6 +23,10 @@ export class PomodoroTimer {
         this.sessionHistory = [];
         this.startTime = null;
         this.timerInterval = null;
+        this.lastPersistedAt = 0;
+        this.renderState = {};
+        this.shouldResumeRunning = false;
+        this.pendingExpiredRuntime = false;
 
         // Load saved state
         this.loadState();
@@ -33,6 +38,12 @@ export class PomodoroTimer {
         this.progressCircle = document.getElementById('progressCircle');
         this.startBtn = document.getElementById('startBtn');
         this.pauseBtn = document.getElementById('pauseBtn');
+
+        if (this.pendingExpiredRuntime) {
+            this.complete();
+        } else if (this.shouldResumeRunning) {
+            this.resumePersistedSession();
+        }
     }
 
     /**
@@ -46,10 +57,32 @@ export class PomodoroTimer {
             this.totalBreakTime = savedState.totalBreakTime || 0;
             this.currentStreak = savedState.currentStreak || 0;
             this.sessionHistory = savedState.sessionHistory || [];
+
+            const runtime = savedState.runtime || {};
+            this.currentSession = runtime.currentSession || this.currentSession;
+            this.isPaused = Boolean(runtime.isPaused);
+
+            if (typeof runtime.currentTime === 'number' && runtime.currentTime > 0) {
+                this.currentTime = runtime.currentTime;
+            }
+
+            if (runtime.isRunning && runtime.lastTickAt) {
+                const elapsedSeconds = Math.floor((Date.now() - runtime.lastTickAt) / 1000);
+                this.currentTime = Math.max(0, (runtime.currentTime || 0) - elapsedSeconds);
+                if (this.currentTime > 0) {
+                    this.shouldResumeRunning = true;
+                    this.isRunning = true;
+                    this.isPaused = false;
+                } else {
+                    this.currentTime = 0;
+                    this.pendingExpiredRuntime = true;
+                }
+            }
         }
 
-        // Always start with work session at default duration
-        this.setSessionTime();
+        if (this.currentTime <= 0) {
+            this.setSessionTime();
+        }
     }
 
     /**
@@ -61,35 +94,65 @@ export class PomodoroTimer {
             totalWorkTime: this.totalWorkTime,
             totalBreakTime: this.totalBreakTime,
             currentStreak: this.currentStreak,
-            sessionHistory: this.sessionHistory
+            sessionHistory: this.sessionHistory,
+            runtime: {
+                currentTime: this.currentTime,
+                isRunning: this.isRunning,
+                isPaused: this.isPaused,
+                currentSession: this.currentSession,
+                lastTickAt: this.isRunning ? Date.now() : null,
+                startedAt: this.startTime
+            }
         };
         storageManager.saveTimerState(state);
+        this.lastPersistedAt = Date.now();
     }
 
-    /**
-     * Start timer
-     */
-    start() {
-        if (this.currentTime <= 0) {
-            this.setSessionTime();
+    persistRuntimeIfNeeded(force = false) {
+        if (force || Date.now() - this.lastPersistedAt >= 15000) {
+            this.saveState();
         }
+    }
 
-        // Clear any existing interval
+    resumePersistedSession() {
+        this.startTime = Date.now();
+        this.startInterval();
+        this.updateControls();
+        this.updateDisplay();
+        this.emitTimerEvent('timer:resume', this.getSessionSnapshot());
+    }
+
+    startInterval() {
         if (this.timerInterval) {
             clearInterval(this.timerInterval);
             this.timerInterval = null;
         }
 
-        this.isRunning = true;
-        this.isPaused = false;
-        this.startTime = Date.now();
-
         this.timerInterval = setInterval(() => {
             this.tick();
         }, 1000);
+    }
+
+    /**
+     * Start timer
+     */
+    start(showNotification = true) {
+        if (this.currentTime <= 0) {
+            this.setSessionTime();
+        }
+
+        this.isRunning = true;
+        this.isPaused = false;
+        this.startTime = Date.now();
+        this.startInterval();
 
         this.updateControls();
-        this.showNotification('Timer đã bắt đầu!', 'success');
+        this.updateDisplay();
+        this.saveState();
+        if (showNotification) {
+            this.showNotification('Timer đã bắt đầu!', 'success');
+        }
+        this.emitTimerEvent('timer:start', this.getSessionSnapshot());
     }
 
     /**
@@ -105,7 +168,9 @@ export class PomodoroTimer {
         }
 
         this.updateControls();
+        this.saveState();
         this.showNotification('Timer đã tạm dừng', 'warning');
+        this.emitTimerEvent('timer:pause', this.getSessionSnapshot());
     }
 
     /**
@@ -123,8 +188,10 @@ export class PomodoroTimer {
         this.setSessionTime();
         this.updateDisplay();
         this.updateControls();
+        this.saveState();
 
         this.showNotification('Timer đã được đặt lại', 'info');
+        this.emitTimerEvent('timer:reset', this.getSessionSnapshot());
     }
 
     /**
@@ -138,6 +205,7 @@ export class PomodoroTimer {
 
         this.isRunning = false;
         this.currentTime = 0;
+        this.saveState();
 
         this.complete();
         this.showNotification('Đã bỏ qua phiên hiện tại', 'info');
@@ -151,15 +219,18 @@ export class PomodoroTimer {
 
         if (this.currentTime <= 0) {
             this.complete();
+            return;
         }
 
         this.updateDisplay();
+        this.persistRuntimeIfNeeded();
     }
 
     /**
      * Complete current session
      */
     complete() {
+        const completedSessionType = this.currentSession;
         if (this.timerInterval) {
             clearInterval(this.timerInterval);
             this.timerInterval = null;
@@ -175,7 +246,7 @@ export class PomodoroTimer {
         // Save session to history
         const session = {
             id: Date.now(),
-            type: this.currentSession,
+            type: completedSessionType,
             duration: durationInMinutes,
             completed: this.currentTime <= 0,
             timestamp: new Date().toISOString(),
@@ -190,17 +261,23 @@ export class PomodoroTimer {
         this.sessionHistory = newState.sessionHistory;
 
         // Play notification sound
-        if (this.currentSession === 'work') {
+        if (completedSessionType === 'work') {
             this.audioManager.playNotification('workComplete');
         } else {
             this.audioManager.playNotification('breakComplete');
         }
+
+        this.emitTimerEvent('timer:session-complete', {
+            session,
+            stats: this.getStatistics()
+        });
 
         // Move to next session
         this.moveToNextSession();
 
         this.updateDisplay();
         this.updateControls();
+        this.saveState();
     }
 
     /**
@@ -227,7 +304,7 @@ export class PomodoroTimer {
         // Auto-start if enabled
         if ((this.currentSession === 'work' && this.settings.autoStartPomodoros) ||
             (this.currentSession !== 'work' && this.settings.autoStartBreaks)) {
-            setTimeout(() => this.start(), 2000);
+            setTimeout(() => this.start(false), 2000);
         }
     }
 
@@ -270,28 +347,34 @@ export class PomodoroTimer {
         const minutes = Math.floor(this.currentTime / 60);
         const seconds = this.currentTime % 60;
         const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        const sessionName = this.getSessionName();
+        const sessionInCycle = (this.completedPomodoros % this.settings.longBreakInterval) + 1;
 
-        if (this.timeDisplay) {
+        if (this.timeDisplay && this.renderState.timeString !== timeString) {
             this.timeDisplay.textContent = timeString;
+            this.renderState.timeString = timeString;
         }
 
-        if (this.sessionTypeDisplay) {
-            this.sessionTypeDisplay.textContent = this.getSessionName();
+        if (this.sessionTypeDisplay && this.renderState.sessionName !== sessionName) {
+            this.sessionTypeDisplay.textContent = sessionName;
+            this.renderState.sessionName = sessionName;
         }
 
-        if (this.sessionCountDisplay) {
-            const sessionInCycle = (this.completedPomodoros % this.settings.longBreakInterval) + 1;
+        if (this.sessionCountDisplay && this.renderState.sessionInCycle !== sessionInCycle) {
             this.sessionCountDisplay.textContent = sessionInCycle;
+            this.renderState.sessionInCycle = sessionInCycle;
         }
 
         // Update progress circle
         this.updateProgressCircle();
 
         // Update page title
-        if (this.isRunning) {
-            document.title = `${timeString} - ${this.getSessionName()} - ChillPomodoro`;
-        } else {
-            document.title = 'ChillPomodoro - Focus & Relax';
+        const nextTitle = this.isRunning
+            ? `${timeString} - ${sessionName} - ChillPomodoro`
+            : 'ChillPomodoro - Focus & Relax';
+        if (this.renderState.title !== nextTitle) {
+            document.title = nextTitle;
+            this.renderState.title = nextTitle;
         }
     }
 
@@ -306,15 +389,23 @@ export class PomodoroTimer {
         const circumference = 2 * Math.PI * 120; // r = 120
 
         const strokeDasharray = circumference * progress;
-        this.progressCircle.style.strokeDasharray = `${strokeDasharray} ${circumference}`;
+        if (this.renderState.strokeDasharray !== strokeDasharray) {
+            this.renderState.strokeDasharray = strokeDasharray;
+            requestAnimationFrame(() => {
+                this.progressCircle.style.strokeDasharray = `${strokeDasharray} ${circumference}`;
+            });
+        }
 
         // Add pulse animation if running
         const timerCircle = this.progressCircle.closest('.timer-circle');
         if (timerCircle) {
-            if (this.settings.enableAnimations && this.isRunning) {
+            const shouldAnimate = this.settings.enableAnimations && this.isRunning;
+            if (shouldAnimate && !this.renderState.timerPulseActive) {
                 timerCircle.classList.add('timer-pulse');
-            } else {
+                this.renderState.timerPulseActive = true;
+            } else if (!shouldAnimate && this.renderState.timerPulseActive) {
                 timerCircle.classList.remove('timer-pulse');
+                this.renderState.timerPulseActive = false;
             }
         }
     }
@@ -344,18 +435,19 @@ export class PomodoroTimer {
      */
     handleVisibilityChange() {
         if (document.hidden && this.isRunning) {
-            localStorage.setItem('chillpomodoro-hidden-time', Date.now().toString());
+            this.saveState();
         } else if (!document.hidden && this.isRunning) {
-            const hiddenTime = localStorage.getItem('chillpomodoro-hidden-time');
-            if (hiddenTime) {
-                const timePassed = Math.floor((Date.now() - parseInt(hiddenTime)) / 1000);
+            const savedState = storageManager.getTimerState();
+            const lastTickAt = savedState?.runtime?.lastTickAt;
+            if (lastTickAt) {
+                const timePassed = Math.floor((Date.now() - parseInt(lastTickAt, 10)) / 1000);
                 this.currentTime = Math.max(0, this.currentTime - timePassed);
-                localStorage.removeItem('chillpomodoro-hidden-time');
 
                 if (this.currentTime <= 0) {
                     this.complete();
                 } else {
                     this.updateDisplay();
+                    this.saveState();
                 }
             }
         }
@@ -365,17 +457,7 @@ export class PomodoroTimer {
      * Show notification
      */
     showNotification(message, type = 'info') {
-        const notification = document.getElementById('notification');
-        const text = document.getElementById('notificationText');
-
-        if (!notification || !text) return;
-
-        text.textContent = message;
-        notification.className = `notification ${type} show`;
-
-        setTimeout(() => {
-            notification.classList.remove('show');
-        }, 3000);
+        notificationService.show(message, type);
     }
 
     /**
@@ -389,6 +471,19 @@ export class PomodoroTimer {
             currentStreak: this.currentStreak,
             sessionHistory: this.sessionHistory
         };
+    }
+
+    getSessionSnapshot() {
+        return {
+            currentTime: this.currentTime,
+            currentSession: this.currentSession,
+            isRunning: this.isRunning,
+            isPaused: this.isPaused
+        };
+    }
+
+    emitTimerEvent(name, detail) {
+        document.dispatchEvent(new CustomEvent(name, { detail }));
     }
 
     /**

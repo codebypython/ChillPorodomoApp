@@ -4,6 +4,7 @@
  */
 
 import { storageManager } from './StorageManager.js';
+import { notificationService } from '../services/NotificationService.js';
 
 export class LibraryManager {
     constructor(backgroundManager = null, audioManager = null) {
@@ -13,6 +14,7 @@ export class LibraryManager {
         this.sounds = [];
         this.currentModal = null;
         this.currentEditId = null;
+        this.previewUrlCache = new Map();
     }
 
     /**
@@ -27,6 +29,7 @@ export class LibraryManager {
      * Load animations from storage
      */
     async loadAnimations() {
+        this.revokePreviewUrls();
         this.animations = await storageManager.getAllItems('animations');
         return this.animations;
     }
@@ -94,6 +97,7 @@ export class LibraryManager {
      */
     async deleteAnimation(id) {
         try {
+            this.revokePreviewUrl(id);
             await storageManager.deleteItem('animations', id);
 
             // Reload animations
@@ -246,29 +250,36 @@ export class LibraryManager {
                         <div class="library-item-meta">${typeLabel} • ${size}MB</div>
                     </div>
                     <div class="library-item-actions">
-                        <button class="item-btn use" onclick="window.libraryManager.useAnimation(${animation.id})">
+                        <button class="item-btn use" data-action="use-animation" data-id="${animation.id}">
                             Sử dụng
                         </button>
-                        <button class="item-btn delete" onclick="window.libraryManager.confirmDelete('animation', ${animation.id})">
+                        <button class="item-btn delete" data-action="delete-animation" data-id="${animation.id}">
                             Xóa
                         </button>
                     </div>
                 </div>
             `;
         }).join('');
+
+        container.querySelectorAll('[data-action="use-animation"]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.useAnimation(parseInt(button.dataset.id, 10));
+            });
+        });
+
+        container.querySelectorAll('[data-action="delete-animation"]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.confirmDelete('animation', parseInt(button.dataset.id, 10));
+            });
+        });
     }
 
     /**
      * Get animation preview HTML
      */
     getAnimationPreview(animation) {
-        let previewURL;
-
-        if (animation.data instanceof Blob) {
-            previewURL = storageManager.createBlobURL(animation.data);
-        } else if (typeof animation.data === 'string') {
-            previewURL = animation.data;
-        } else {
+        const previewURL = this.getOrCreatePreviewUrl(animation);
+        if (!previewURL) {
             return '<div class="library-item-preview" style="background: var(--bg-tertiary)"></div>';
         }
 
@@ -276,6 +287,39 @@ export class LibraryManager {
             return `<video class="library-item-preview" src="${previewURL}" muted loop></video>`;
         } else {
             return `<div class="library-item-preview" style="background-image: url('${previewURL}')"></div>`;
+        }
+    }
+
+    getOrCreatePreviewUrl(animation) {
+        if (this.previewUrlCache.has(animation.id)) {
+            return this.previewUrlCache.get(animation.id);
+        }
+
+        let previewURL = null;
+        if (animation.data instanceof Blob) {
+            previewURL = storageManager.createBlobURL(animation.data);
+        } else if (typeof animation.data === 'string') {
+            previewURL = animation.data;
+        }
+
+        if (previewURL) {
+            this.previewUrlCache.set(animation.id, previewURL);
+        }
+
+        return previewURL;
+    }
+
+    revokePreviewUrl(id) {
+        const url = this.previewUrlCache.get(id);
+        if (url && url.startsWith('blob:')) {
+            storageManager.revokeBlobURL(url);
+        }
+        this.previewUrlCache.delete(id);
+    }
+
+    revokePreviewUrls() {
+        for (const [id] of this.previewUrlCache.entries()) {
+            this.revokePreviewUrl(id);
         }
     }
 
@@ -308,16 +352,28 @@ export class LibraryManager {
                         <div class="library-item-meta">Audio • ${size}MB</div>
                     </div>
                     <div class="library-item-actions">
-                        <button class="item-btn use" onclick="window.libraryManager.useSound(${sound.id})">
+                        <button class="item-btn use" data-action="use-sound" data-id="${sound.id}">
                             Phát
                         </button>
-                        <button class="item-btn delete" onclick="window.libraryManager.confirmDelete('sound', ${sound.id})">
+                        <button class="item-btn delete" data-action="delete-sound" data-id="${sound.id}">
                             Xóa
                         </button>
                     </div>
                 </div>
             `;
         }).join('');
+
+        container.querySelectorAll('[data-action="use-sound"]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.useSound(parseInt(button.dataset.id, 10));
+            });
+        });
+
+        container.querySelectorAll('[data-action="delete-sound"]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.confirmDelete('sound', parseInt(button.dataset.id, 10));
+            });
+        });
     }
 
     // ===== Modal Methods =====
@@ -484,17 +540,7 @@ export class LibraryManager {
      * Show notification
      */
     showNotification(message, type = 'info') {
-        const notification = document.getElementById('notification');
-        const text = document.getElementById('notificationText');
-
-        if (!notification || !text) return;
-
-        text.textContent = message;
-        notification.className = `notification ${type} show`;
-
-        setTimeout(() => {
-            notification.classList.remove('show');
-        }, 3000);
+        notificationService.show(message, type);
     }
 }
 
